@@ -4,7 +4,7 @@ import { Fonts, ThemeColor } from '@/constants/theme';
 import { useTheme } from '@/hooks/use-theme';
 
 export type ThemedTextProps = TextProps & {
-  type?: 'default' | 'title' | 'small' | 'smallBold' | 'subtitle' | 'link' | 'linkPrimary' | 'code';
+  type?: 'display' | 'title' | 'subtitle' | 'default' | 'small' | 'smallBold' | 'micro' | 'link' | 'linkPrimary' | 'code';
   themeColor?: ThemeColor;
 };
 
@@ -15,11 +15,13 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
     <Text
       style={[
         { color: theme[themeColor ?? 'text'] },
-        type === 'default' && styles.default,
+        type === 'display' && styles.display,
         type === 'title' && styles.title,
+        type === 'subtitle' && styles.subtitle,
+        type === 'default' && styles.default,
         type === 'small' && styles.small,
         type === 'smallBold' && styles.smallBold,
-        type === 'subtitle' && styles.subtitle,
+        type === 'micro' && styles.micro,
         type === 'link' && styles.link,
         type === 'linkPrimary' && styles.linkPrimary,
         type === 'code' && styles.code,
@@ -31,6 +33,16 @@ export function ThemedText({ style, type = 'default', themeColor, ...rest }: The
 }
 
 const styles = StyleSheet.create({
+  display: {
+    fontSize: 56,
+    fontWeight: 700,
+    lineHeight: 60,
+  },
+  micro: {
+    fontSize: 11,
+    fontWeight: 500,
+    lineHeight: 14,
+  },
   small: {
     fontSize: 14,
     lineHeight: 20,
