@@ -1,17 +1,22 @@
-import { NativeTabs } from 'expo-router/unstable-native-tabs';
+import { NativeTabs } from "expo-router/unstable-native-tabs";
 
-import { Colors } from '@/constants/theme';
+import { Colors } from "@/constants/theme";
 
 export default function AppTabs() {
   return (
     <NativeTabs
       backgroundColor={Colors.background}
       indicatorColor={Colors.glass}
-      labelStyle={{ selected: { color: Colors.text } }}>
+      labelStyle={{ selected: { color: Colors.text } }}
+    >
+      <NativeTabs.Trigger name="home">
+        <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
+        <NativeTabs.Trigger.Icon sf={"music.house"} renderingMode="template" />
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="vote">
         <NativeTabs.Trigger.Label>Vote</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/home.png')}
+          src={require("@/assets/images/tabIcons/home.png")}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
@@ -19,7 +24,7 @@ export default function AppTabs() {
       <NativeTabs.Trigger name="playlists">
         <NativeTabs.Trigger.Label>Playlists</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon
-          src={require('@/assets/images/tabIcons/explore.png')}
+          src={require("@/assets/images/tabIcons/explore.png")}
           renderingMode="template"
         />
       </NativeTabs.Trigger>
