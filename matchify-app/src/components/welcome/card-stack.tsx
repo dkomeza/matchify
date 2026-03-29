@@ -1,6 +1,7 @@
 import { StyleSheet, View } from "react-native";
 
 import { CARD_WIDTH, CARD_HEIGHT, SongCard } from "./song-card";
+import { Spacing } from "@/constants/theme";
 
 export function CardStack() {
   return (
@@ -13,7 +14,7 @@ export function CardStack() {
             transform: [
               { rotate: "-22deg" },
               { translateX: -CARD_WIDTH * 0.14 },
-              { translateY: 24 },
+              { translateY: 12 },
             ],
             zIndex: 1,
           },
@@ -57,6 +58,7 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    marginBottom: Spacing.four,
   },
   wrapper: {
     position: "absolute",
