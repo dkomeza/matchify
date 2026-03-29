@@ -89,7 +89,7 @@ const styles = StyleSheet.create({
   logoWordmark: { fontSize: 17, letterSpacing: 0.5, color: Colors.text },
   hero: {
     gap: Spacing.one,
-    paddingTop: Spacing.four,
+    paddingTop: Spacing.five,
   },
   tagline: { lineHeight: 20, marginTop: Spacing.two },
   cardStackArea: {
