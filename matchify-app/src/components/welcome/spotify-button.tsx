@@ -1,4 +1,5 @@
-import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native'
+import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native'
+import { useEffect } from 'react'
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -13,7 +14,13 @@ const SPOTIFY_GREEN = '#1DB954'
 
 export function SpotifyButton() {
   const scale = useSharedValue(1)
-  const { login, isLoading, ready } = useSpotifyLogin()
+  const { login, isLoading, ready, error } = useSpotifyLogin()
+
+  useEffect(() => {
+    if (error) {
+      Alert.alert('Login failed', error)
+    }
+  }, [error])
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
