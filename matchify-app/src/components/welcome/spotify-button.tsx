@@ -1,44 +1,39 @@
-import { useRouter } from "expo-router";
-import { StyleSheet, Pressable, View } from "react-native";
+import { ActivityIndicator, Pressable, StyleSheet, View } from 'react-native'
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
-} from "react-native-reanimated";
+} from 'react-native-reanimated'
+import { GlassSurface } from '@/components/glass-surface'
+import { ThemedText } from '@/components/themed-text'
+import { Radius, Spacing } from '@/constants/theme'
+import { useSpotifyLogin } from '@/hooks/use-spotify-login'
 
-import { GlassSurface } from "@/components/glass-surface";
-import { ThemedText } from "@/components/themed-text";
-import { Radius, Spacing } from "@/constants/theme";
-
-const SPOTIFY_GREEN = "#1DB954";
+const SPOTIFY_GREEN = '#1DB954'
 
 export function SpotifyButton() {
-  const router = useRouter();
-  const scale = useSharedValue(1);
+  const scale = useSharedValue(1)
+  const { login, isLoading, ready } = useSpotifyLogin()
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
-  }));
+  }))
 
   const handlePressIn = () => {
-    scale.value = withTiming(0.97, { duration: 80 });
-  };
+    scale.value = withTiming(0.97, { duration: 80 })
+  }
 
   const handlePressOut = () => {
-    scale.value = withTiming(1, { duration: 200 });
-  };
-
-  const handlePress = () => {
-    // TODO: trigger Spotify OAuth
-    router.replace("/(tabs)/vote");
-  };
+    scale.value = withTiming(1, { duration: 200 })
+  }
 
   return (
     <Animated.View style={animStyle}>
       <Pressable
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
-        onPress={handlePress}
+        onPress={login}
+        disabled={isLoading || !ready}
       >
         <GlassSurface
           glassEffectStyle="regular"
@@ -49,28 +44,34 @@ export function SpotifyButton() {
           className="overflow-hidden"
         >
           <View style={styles.inner}>
-            <ThemedText style={styles.icon}>♫</ThemedText>
-            <ThemedText type="smallBold">Continue with Spotify</ThemedText>
+            {isLoading ? (
+              <ActivityIndicator color={SPOTIFY_GREEN} size="small" />
+            ) : (
+              <>
+                <ThemedText style={styles.icon}>♫</ThemedText>
+                <ThemedText type="smallBold">Continue with Spotify</ThemedText>
+              </>
+            )}
           </View>
         </GlassSurface>
       </Pressable>
     </Animated.View>
-  );
+  )
 }
 
 const styles = StyleSheet.create({
   surface: {
     borderRadius: Radius.full,
     borderWidth: 1.5,
-    borderColor: "rgba(29,185,84,0.65)",
+    borderColor: 'rgba(29,185,84,0.65)',
   },
   inner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     height: 56,
     paddingHorizontal: Spacing.four,
     gap: Spacing.two,
   },
   icon: { fontSize: 20, color: SPOTIFY_GREEN },
-});
+})
