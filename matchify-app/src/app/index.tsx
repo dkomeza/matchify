@@ -1,6 +1,9 @@
-import { Redirect } from 'expo-router';
+import { Redirect } from 'expo-router'
+import { useAuthStore } from '@/store/auth-store'
 
-// TODO: check auth state — redirect to /(tabs)/vote when authenticated
 export default function Index() {
-  return <Redirect href="/welcome" />;
+  const status = useAuthStore((s) => s.status)
+  if (status === 'loading') return null
+  if (status === 'unauthenticated') return <Redirect href="/welcome" />
+  return <Redirect href="/(tabs)/vote" />
 }
