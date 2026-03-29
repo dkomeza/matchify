@@ -58,9 +58,16 @@ export const useAuthStore = create<AuthState & AuthActions>()(
       storage: createJSONStorage(() => secureStorage),
       onRehydrateStorage: () => (state) => {
         if (state) {
-          state.status = state.accessToken ? 'authenticated' : 'unauthenticated'
+          const tokenValid = !!state.accessToken && !!state.expiresAt && state.expiresAt > Date.now()
+          state.status = tokenValid ? 'authenticated' : 'unauthenticated'
         }
       },
+      partialize: (state) => ({
+        accessToken: state.accessToken,
+        refreshToken: state.refreshToken,
+        expiresAt: state.expiresAt,
+        user: state.user,
+      }),
     }
   )
 )
