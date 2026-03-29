@@ -1,28 +1,6 @@
-import { StyleSheet } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Redirect } from 'expo-router';
 
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Spacing } from '@/constants/theme';
-
-export default function VoteScreen() {
-  return (
-    <ThemedView style={styles.container}>
-      <SafeAreaView style={styles.content}>
-        <ThemedText type="title">Vote</ThemedText>
-      </SafeAreaView>
-    </ThemedView>
-  );
+// TODO: check auth state — redirect to /(tabs)/vote when authenticated
+export default function Index() {
+  return <Redirect href="/welcome" />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-  },
-  content: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing.four,
-  },
-});
