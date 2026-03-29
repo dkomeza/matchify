@@ -44,6 +44,11 @@ export function useSpotifyLogin() {
   }, [response])
 
   async function exchangeCodeForSession(code: string) {
+    if (!request?.codeVerifier) {
+      setError('Authentication request not initialized')
+      setIsLoading(false)
+      return
+    }
     try {
       const tokenRes = await fetch('https://accounts.spotify.com/api/token', {
         method: 'POST',
@@ -53,7 +58,7 @@ export function useSpotifyLogin() {
           code,
           redirect_uri: redirectUri,
           client_id: CLIENT_ID,
-          code_verifier: request!.codeVerifier!,
+          code_verifier: request.codeVerifier,
         }).toString(),
       })
       if (!tokenRes.ok) throw new Error(`Token exchange failed: ${tokenRes.status}`)
@@ -73,7 +78,7 @@ export function useSpotifyLogin() {
 
       setSession(
         tokens.access_token,
-        tokens.refresh_token,
+        tokens.refresh_token ?? '',
         Date.now() + tokens.expires_in * 1000,
         user
       )
