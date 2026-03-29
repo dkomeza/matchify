@@ -24,6 +24,7 @@ export type GlassSurfaceProps = ViewProps & {
   glassEffectStyle?: GlassStyle;
   colorScheme?: GlassColorScheme;
   tintColor?: string;
+  forceFallback?: boolean;
 };
 
 /**
@@ -44,11 +45,12 @@ export function GlassSurface({
   tintColor,
   style,
   children,
+  forceFallback = false,
   ...props
 }: GlassSurfaceProps) {
   const isGlass = useGlass();
 
-  if (isGlass) {
+  if (isGlass && !forceFallback) {
     return (
       <GlassContainer>
         <GlassView

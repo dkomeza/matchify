@@ -45,6 +45,8 @@ export function SpotifyButton() {
           colorScheme="dark"
           tintColor="rgba(29,185,84,0.20)"
           style={styles.surface}
+          forceFallback
+          className="overflow-hidden"
         >
           <View style={styles.inner}>
             <ThemedText style={styles.icon}>♫</ThemedText>

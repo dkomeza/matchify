@@ -1,13 +1,5 @@
-import { useEffect } from "react";
-import { StyleSheet, View } from "react-native";
-import Animated, {
-  Easing,
-  FadeInDown,
-  useAnimatedStyle,
-  useSharedValue,
-  withDelay,
-  withTiming,
-} from "react-native-reanimated";
+import { StyleSheet } from "react-native";
+import Animated, { FadeInDown } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CardStack } from "@/components/welcome/card-stack";
@@ -18,19 +10,6 @@ import { ThemedView } from "@/components/themed-view";
 import { Colors, Spacing } from "@/constants/theme";
 
 export default function WelcomeScreen() {
-  // Translate-only entrance for the CTA — opacity stays 1 so iOS never skips
-  // compositing the subtree, which UIGlassEffect requires to sample the background.
-  const ctaTY = useSharedValue(20);
-  useEffect(() => {
-    ctaTY.value = withDelay(
-      450,
-      withTiming(0, { duration: 700, easing: Easing.out(Easing.quad) }),
-    );
-  }, [ctaTY]);
-  const ctaStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: ctaTY.value }],
-  }));
-
   return (
     <ThemedView style={styles.container}>
       <WelcomeBackground />
@@ -72,7 +51,10 @@ export default function WelcomeScreen() {
           <CardStack />
         </Animated.View>
 
-        <Animated.View style={[styles.cta, ctaStyle]}>
+        <Animated.View
+          entering={FadeInDown.delay(450).duration(700)}
+          style={styles.cta}
+        >
           <SpotifyButton />
           <ThemedText
             type="micro"
