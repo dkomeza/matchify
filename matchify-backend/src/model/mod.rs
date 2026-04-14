@@ -1,2 +1,1 @@
-pub mod spotify;
-pub mod user;
+// Models module: DB structs (User, Playlist, Song, Vote)
