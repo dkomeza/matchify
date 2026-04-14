@@ -5,6 +5,7 @@ pub struct AppConfig {
     pub port: u16,
     pub mongo_uri: String,
     pub encryption_key: String,
+    pub jwt_secret: String,
 }
 
 impl AppConfig {
@@ -21,11 +22,17 @@ impl AppConfig {
 
         let mongo_uri = std::env::var("MONGO_URI").expect("MONGO_URI must be set");
         let encryption_key = std::env::var("ENCRYPTION_KEY").expect("ENCRYPTION_KEY must be set");
+        let jwt_secret = std::env::var("JWT_SECRET").expect("JWT_SECRET must be set");
+
+        if jwt_secret.len() < 32 {
+            panic!("JWT_SECRET must be at least 32 characters long");
+        }
 
         Self {
             port,
             mongo_uri,
             encryption_key,
+            jwt_secret,
         }
     }
 }

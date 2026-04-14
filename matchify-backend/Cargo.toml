@@ -22,3 +22,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 aes-gcm = "0.10.3"
 base64 = "0.22.1"
 rand = "0.8"
+
+[dev-dependencies]
+mockito = "1.7.2"
