@@ -14,6 +14,9 @@ pub enum AppError {
     #[error("JWT error: {0}")]
     Jwt(#[from] jsonwebtoken::errors::Error),
 
+    #[error("Crypto error: {0}")]
+    Crypto(#[from] crate::crypto::CryptoError),
+
     #[error("Unexpected error")]
     Unexpected,
 }
@@ -24,8 +27,9 @@ impl ErrorExtensions for AppError {
             match self {
                 AppError::Database(_) => e.set("code", "DATABASE_ERROR"),
                 AppError::Http(_) => e.set("code", "HTTP_ERROR"),
-                AppError::SpotifyAuth(_) => e.set("code", "SPOTIFY_AUTH_ERROR"),
+                AppError::SpotifyAuth(_) => e.set("code", "UNAUTHENTICATED"),
                 AppError::Jwt(_) => e.set("code", "JWT_ERROR"),
+                AppError::Crypto(_) => e.set("code", "CRYPTO_ERROR"),
                 AppError::Unexpected => e.set("code", "INTERNAL_SERVER_ERROR"),
             }
         })
