@@ -41,21 +41,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let spotify_client = service::spotify::SpotifyClient::new(
         config.spotify_client_id.clone(),
         config.spotify_client_secret.clone(),
-    // 4. Build GraphQL Schema
-    tracing::info!("Building GraphQL Schema");
-    let schema = graphql::build_schema();
-    tracing::info!("Successfully built GraphQL Schema");
-
-    // 5. Build Axum Router
-    tracing::info!("Building Axum Router");
-    let app = Router::new().route(
-        "/graphql",
-        post(move |req: GraphQLRequest| {
-            let schema = schema.clone();
-            async move { GraphQLResponse::from(schema.execute(req.into_inner()).await) }
-        }),
     );
-    tracing::info!("Successfully built Axum Router");
+    tracing::info!("Successfully initialized Spotify Client");
 
     // 5. Build GraphQL Schema
     tracing::info!("Building GraphQL Schema");

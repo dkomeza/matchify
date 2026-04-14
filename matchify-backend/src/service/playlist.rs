@@ -1,0 +1,1107 @@
+use chrono::Utc;
+use mongodb::{
+    bson::{doc, oid::ObjectId},
+    Database,
+};
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
+
+use crate::{
+    error::{AppError, Result},
+    model::playlist::Playlist,
+};
+
+const INVITE_CODE_LEN: usize = 8;
+const INVITE_CODE_MAX_RETRIES: u32 = 5;
+
+fn generate_invite_code() -> String {
+    thread_rng()
+        .sample_iter(&Alphanumeric)
+        .take(INVITE_CODE_LEN)
+        .map(char::from)
+        .collect()
+}
+
+/// Returns `true` if a MongoDB write error contains a duplicate-key (E11000) code.
+fn is_duplicate_key_error(err: &mongodb::error::Error) -> bool {
+    use mongodb::error::ErrorKind;
+    match err.kind.as_ref() {
+        ErrorKind::Write(mongodb::error::WriteFailure::WriteError(we)) => we.code == 11000,
+        _ => false,
+    }
+}
+
+pub struct CreatePlaylistInput {
+    pub name: String,
+    pub description: Option<String>,
+    pub vote_threshold: Option<i32>,
+}
+
+/// Create a new playlist owned by `owner_id`.
+///
+/// Validates `name`, generates a unique 8-char invite code (retrying on
+/// collision), then inserts and returns the hydrated document.
+pub async fn create(
+    db: &Database,
+    owner_id: ObjectId,
+    input: CreatePlaylistInput,
+) -> Result<Playlist> {
+    // --- Validation ---
+    let name = input.name.trim().to_string();
+    if name.is_empty() {
+        return Err(AppError::Validation(
+            "Playlist name must not be empty".to_string(),
+        ));
+    }
+    if name.len() > 100 {
+        return Err(AppError::Validation(
+            "Playlist name must be at most 100 characters".to_string(),
+        ));
+    }
+
+    let collection = db.collection::<Playlist>("playlists");
+    let now = Utc::now();
+    let vote_threshold = input.vote_threshold.unwrap_or(1);
+
+    // --- Invite-code generation with collision retry ---
+    for attempt in 0..INVITE_CODE_MAX_RETRIES {
+        let invite_code = generate_invite_code();
+
+        let playlist = Playlist {
+            id: ObjectId::new(),
+            name: name.clone(),
+            description: input.description.clone(),
+            owner_id,
+            member_ids: vec![owner_id],
+            invite_code: invite_code.clone(),
+            vote_threshold,
+            spotify_playlist_id: None,
+            created_at: now,
+            updated_at: now,
+        };
+
+        match collection.insert_one(&playlist).await {
+            Ok(result) => {
+                // Fetch the inserted document to get the server-assigned _id.
+                let inserted_id = result
+                    .inserted_id
+                    .as_object_id()
+                    .ok_or(AppError::Unexpected)?;
+
+                let hydrated = collection
+                    .find_one(doc! { "_id": inserted_id })
+                    .await?
+                    .ok_or(AppError::Unexpected)?;
+
+                tracing::info!(
+                    playlist_id = %inserted_id,
+                    owner_id = %owner_id,
+                    invite_code = %invite_code,
+                    "Playlist created"
+                );
+
+                return Ok(hydrated);
+            }
+            Err(err) if is_duplicate_key_error(&err) => {
+                tracing::warn!(attempt, "Invite code collision, retrying");
+                continue;
+            }
+            Err(err) => return Err(AppError::Database(err)),
+        }
+    }
+
+    Err(AppError::InviteCodeConflict)
+}
+
+/// Join an existing playlist using its invite code.
+///
+/// * Looks up the playlist by `invite_code` (unique-indexed field).
+/// * If `caller_id` is already in `member_ids` the document is returned as-is
+///   (idempotent — no error, no write).
+/// * Otherwise `$addToSet` the caller, then recalculate
+///   `vote_threshold = ceil(new_member_count / 2)` **only** when the playlist
+///   is still using the default formula (i.e. `vote_threshold` equals
+///   `ceil(old_member_count / 2)`). User-supplied custom thresholds are
+///   preserved.
+///
+/// Returns `NOT_FOUND` when the invite code does not match any playlist.
+pub async fn join(db: &Database, caller_id: ObjectId, invite_code: &str) -> Result<Playlist> {
+    use mongodb::options::{FindOneAndUpdateOptions, ReturnDocument};
+
+    let collection = db.collection::<Playlist>("playlists");
+
+    // 1. Look up the playlist.
+    let playlist = collection
+        .find_one(doc! { "invite_code": invite_code })
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("No playlist with invite code '{invite_code}'")))?;
+
+    // 2. Idempotency — already a member, nothing to do.
+    if playlist.member_ids.contains(&caller_id) {
+        tracing::debug!(
+            playlist_id = %playlist.id,
+            caller_id = %caller_id,
+            "joinPlaylist: caller already a member, skipping write"
+        );
+        return Ok(playlist);
+    }
+
+    // 3. Determine whether the current threshold is the auto-computed default
+    //    so we know whether to bump it after adding the new member.
+    let old_count = playlist.member_ids.len() as i32;
+    let auto_threshold = (old_count + 1) / 2 + (old_count + 1) % 2; // ceil(n/2)
+    let has_custom_threshold = playlist.vote_threshold != auto_threshold;
+
+    let new_count = old_count + 1;
+    let new_threshold = if has_custom_threshold {
+        playlist.vote_threshold // preserve custom value
+    } else {
+        (new_count + 1) / 2 // ceil(new_count / 2) using integer arithmetic
+    };
+
+    // 4. Atomic update: add member + (conditionally) update threshold.
+    let now = mongodb::bson::DateTime::from_millis(chrono::Utc::now().timestamp_millis());
+    let updated = collection
+        .find_one_and_update(
+            doc! { "_id": playlist.id, "invite_code": invite_code },
+            doc! {
+                "$addToSet": { "member_ids": caller_id },
+                "$set": {
+                    "vote_threshold": new_threshold,
+                    "updated_at": now,
+                },
+            },
+        )
+        .with_options(
+            FindOneAndUpdateOptions::builder()
+                .return_document(ReturnDocument::After)
+                .build(),
+        )
+        .await?
+        .ok_or(AppError::Unexpected)?;
+
+    tracing::info!(
+        playlist_id = %updated.id,
+        caller_id = %caller_id,
+        new_member_count = new_count,
+        vote_threshold = new_threshold,
+        "joinPlaylist: member added"
+    );
+
+    Ok(updated)
+}
+
+/// Find a playlist by its ObjectId.
+///
+/// Returns `Ok(Some(playlist))` when found, `Ok(None)` when not found.
+pub async fn find_by_id(db: &Database, id: ObjectId) -> Result<Option<Playlist>> {
+    let collection = db.collection::<Playlist>("playlists");
+    let playlist = collection.find_one(doc! { "_id": id }).await?;
+    Ok(playlist)
+}
+
+/// Return all playlists where `user_id` appears in `member_ids`.
+pub async fn find_by_member(db: &Database, user_id: ObjectId) -> Result<Vec<Playlist>> {
+    use mongodb::bson::doc;
+    use futures::TryStreamExt;
+
+    let collection = db.collection::<Playlist>("playlists");
+    let cursor = collection
+        .find(doc! { "member_ids": user_id })
+        .await?;
+
+    let playlists: Vec<Playlist> = cursor.try_collect().await?;
+    Ok(playlists)
+}
+
+// ---------------------------------------------------------------------------
+// Update
+// ---------------------------------------------------------------------------
+
+pub struct UpdatePlaylistInput {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    /// `None` means "don't touch". `Some(None)` is not modelled — the field is
+    /// simply omitted from `$set` when the caller doesn't supply it.
+    pub vote_threshold: Option<i32>,
+}
+
+/// Partially update a playlist's metadata.
+///
+/// * Only the owner may call this (`owner_id == caller_id`).
+/// * Only fields present in `input` are written.
+/// * `vote_threshold` must be ≥ 1 and ≤ current member count.
+///
+/// Returns the updated document.
+pub async fn update(
+    db: &Database,
+    caller_id: ObjectId,
+    playlist_id: ObjectId,
+    input: UpdatePlaylistInput,
+) -> Result<Playlist> {
+    use mongodb::options::{FindOneAndUpdateOptions, ReturnDocument};
+
+    let collection = db.collection::<Playlist>("playlists");
+
+    // Fetch current state for auth + validation.
+    let playlist = collection
+        .find_one(doc! { "_id": playlist_id })
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Playlist {playlist_id} not found")))?;
+
+    // Authorization: only the owner may update.
+    if playlist.owner_id != caller_id {
+        return Err(AppError::Forbidden(
+            "Only the playlist owner can update it".to_string(),
+        ));
+    }
+
+    // Validate vote_threshold when supplied.
+    if let Some(vt) = input.vote_threshold {
+        if vt < 1 {
+            return Err(AppError::Validation(
+                "voteThreshold must be at least 1".to_string(),
+            ));
+        }
+        let member_count = playlist.member_ids.len() as i32;
+        if vt > member_count {
+            return Err(AppError::Validation(format!(
+                "voteThreshold ({vt}) cannot exceed the number of members ({member_count})"
+            )));
+        }
+    }
+
+    // Build the $set document — only include supplied fields.
+    let mut set_doc = mongodb::bson::Document::new();
+
+    if let Some(name) = &input.name {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return Err(AppError::Validation(
+                "Playlist name must not be empty".to_string(),
+            ));
+        }
+        if name.len() > 100 {
+            return Err(AppError::Validation(
+                "Playlist name must be at most 100 characters".to_string(),
+            ));
+        }
+        set_doc.insert("name", name);
+    }
+
+    if let Some(desc) = &input.description {
+        set_doc.insert("description", desc.as_str());
+    }
+
+    if let Some(vt) = input.vote_threshold {
+        set_doc.insert("vote_threshold", vt);
+    }
+
+    // Always bump updated_at.
+    let now = mongodb::bson::DateTime::from_millis(Utc::now().timestamp_millis());
+    set_doc.insert("updated_at", now);
+
+    let updated = collection
+        .find_one_and_update(doc! { "_id": playlist_id }, doc! { "$set": set_doc })
+        .with_options(
+            FindOneAndUpdateOptions::builder()
+                .return_document(ReturnDocument::After)
+                .build(),
+        )
+        .await?
+        .ok_or(AppError::Unexpected)?;
+
+    tracing::info!(
+        playlist_id = %playlist_id,
+        caller_id = %caller_id,
+        "updatePlaylist: metadata updated"
+    );
+
+    Ok(updated)
+}
+
+// ---------------------------------------------------------------------------
+// Leave
+// ---------------------------------------------------------------------------
+
+/// Remove `caller_id` from `member_ids`.
+///
+/// * The owner cannot leave — they must transfer ownership or delete the
+///   playlist instead.
+/// * If the remaining threshold was auto-managed (i.e. equals `ceil(old/2)`),
+///   it is recalculated to `ceil(new/2)`. Custom thresholds are clamped down
+///   to the new member count if they would otherwise exceed it.
+///
+/// Returns `true` on success.
+pub async fn leave(db: &Database, caller_id: ObjectId, playlist_id: ObjectId) -> Result<bool> {
+    use mongodb::options::{FindOneAndUpdateOptions, ReturnDocument};
+
+    let collection = db.collection::<Playlist>("playlists");
+
+    let playlist = collection
+        .find_one(doc! { "_id": playlist_id })
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Playlist {playlist_id} not found")))?;
+
+    // Guard: owner cannot leave.
+    if playlist.owner_id == caller_id {
+        return Err(AppError::Validation(
+            "The playlist owner cannot leave. Transfer ownership or delete the playlist instead."
+                .to_string(),
+        ));
+    }
+
+    // Guard: must be a member.
+    if !playlist.member_ids.contains(&caller_id) {
+        return Err(AppError::Validation(
+            "You are not a member of this playlist".to_string(),
+        ));
+    }
+
+    let old_count = playlist.member_ids.len() as i32;
+    let new_count = old_count - 1;
+
+    // Recalculate threshold.
+    let auto_threshold = {
+        // ceil(old_count / 2) using integer arithmetic
+        (old_count + 1) / 2
+    };
+    let new_threshold = if playlist.vote_threshold == auto_threshold {
+        // Auto-managed: recalculate for new_count.
+        (new_count + 1) / 2
+    } else {
+        // Custom threshold: clamp to new_count if it would exceed it.
+        playlist.vote_threshold.min(new_count).max(1)
+    };
+
+    let now = mongodb::bson::DateTime::from_millis(Utc::now().timestamp_millis());
+
+    collection
+        .find_one_and_update(
+            doc! { "_id": playlist_id },
+            doc! {
+                "$pull": { "member_ids": caller_id },
+                "$set": {
+                    "vote_threshold": new_threshold,
+                    "updated_at": now,
+                },
+            },
+        )
+        .with_options(
+            FindOneAndUpdateOptions::builder()
+                .return_document(ReturnDocument::After)
+                .build(),
+        )
+        .await?
+        .ok_or(AppError::Unexpected)?;
+
+    tracing::info!(
+        playlist_id = %playlist_id,
+        caller_id = %caller_id,
+        new_member_count = new_count,
+        vote_threshold = new_threshold,
+        "leavePlaylist: member removed"
+    );
+
+    Ok(true)
+}
+
+// ---------------------------------------------------------------------------
+// Shared test helpers
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+async fn build_fake_db() -> Database {
+    let uri =
+        std::env::var("MONGO_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
+    let client = mongodb::Client::with_uri_str(&uri)
+        .await
+        .expect("MongoDB not reachable — set MONGO_URI or start a local instance");
+    client.database("matchify_test")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn invite_code_is_eight_alphanumeric_chars() {
+        let code = generate_invite_code();
+        assert_eq!(code.len(), INVITE_CODE_LEN);
+        assert!(
+            code.chars().all(|c| c.is_ascii_alphanumeric()),
+            "invite code contained non-alphanumeric character: {code}"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_rejects_empty_name() {
+        // We test the validation path without a real DB.
+        // Passing a dummy ObjectId; the error fires before any DB call.
+        let fake_db = build_fake_db().await;
+        let err = create(
+            &fake_db,
+            ObjectId::new(),
+            CreatePlaylistInput {
+                name: "   ".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(err, AppError::Validation(_)),
+            "Expected Validation error, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn create_rejects_name_over_100_chars() {
+        let fake_db = build_fake_db().await;
+        let long_name = "a".repeat(101);
+        let err = create(
+            &fake_db,
+            ObjectId::new(),
+            CreatePlaylistInput {
+                name: long_name,
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(err, AppError::Validation(_)),
+            "Expected Validation error, got {err:?}"
+        );
+    }
+
+    /// Build a throwaway MongoDB client pointing at the URI in `MONGO_URI`
+    /// (defaults to `mongodb://localhost:27017`). Tests that exercise the DB
+    /// are skipped when the env var `SKIP_DB_TESTS` is set.
+    async fn build_fake_db() -> Database {
+        super::build_fake_db().await
+    }
+
+
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn create_playlist_integration() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "My Test Playlist".to_string(),
+                description: Some("Integration test".to_string()),
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        assert_eq!(playlist.name, "My Test Playlist");
+        assert_eq!(playlist.owner_id, owner_id);
+        assert_eq!(playlist.member_ids, vec![owner_id]);
+        assert_eq!(playlist.vote_threshold, 1);
+        assert_eq!(playlist.invite_code.len(), INVITE_CODE_LEN);
+        assert!(playlist
+            .invite_code
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric()));
+        assert!(playlist.spotify_playlist_id.is_none());
+
+        // Clean up
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn join_invalid_invite_code_returns_not_found() {
+        let db = build_fake_db().await;
+        let err = join(&db, ObjectId::new(), "NOTEXIST")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, AppError::NotFound(_)),
+            "Expected NotFound error, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn join_is_idempotent() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Idempotency Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        // Join with the owner who is already a member.
+        let rejoined = join(&db, owner_id, &playlist.invite_code)
+            .await
+            .expect("idempotent join should succeed");
+
+        assert_eq!(rejoined.member_ids.len(), 1, "no duplicate member");
+        assert_eq!(rejoined.vote_threshold, 1);
+
+        // Clean up
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn join_adds_member_and_recalculates_threshold() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+        let new_member_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Threshold Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        // 1 member → threshold = 1; after join: 2 members → ceil(2/2) = 1.
+        let after_second = join(&db, new_member_id, &playlist.invite_code)
+            .await
+            .expect("join should succeed");
+
+        assert_eq!(after_second.member_ids.len(), 2);
+        assert!(after_second.member_ids.contains(&new_member_id));
+        assert_eq!(after_second.vote_threshold, 1); // ceil(2/2)
+
+        // Join a third member → ceil(3/2) = 2.
+        let third_id = ObjectId::new();
+        let after_third = join(&db, third_id, &playlist.invite_code)
+            .await
+            .expect("join should succeed");
+
+        assert_eq!(after_third.member_ids.len(), 3);
+        assert_eq!(after_third.vote_threshold, 2); // ceil(3/2)
+
+        // Clean up
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Guard / validation tests — require a running MongoDB instance
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod update_validation_tests {
+    use super::*;
+
+    /// `update` rejects a voteThreshold of 0.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn update_rejects_zero_vote_threshold() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "VT Zero Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        let err = update(
+            &db,
+            owner_id,
+            playlist.id,
+            UpdatePlaylistInput {
+                name: None,
+                description: None,
+                vote_threshold: Some(0),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(err, AppError::Validation(_)),
+            "Expected Validation, got {err:?}"
+        );
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// `update` rejects a voteThreshold greater than the member count.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn update_rejects_vote_threshold_above_member_count() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "VT Ceiling Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        // 1 member; threshold of 2 should be rejected.
+        let err = update(
+            &db,
+            owner_id,
+            playlist.id,
+            UpdatePlaylistInput {
+                name: None,
+                description: None,
+                vote_threshold: Some(2),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(err, AppError::Validation(_)),
+            "Expected Validation, got {err:?}"
+        );
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// Non-owner cannot call `update`.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn update_forbidden_for_non_owner() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+        let intruder_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Owner Guard Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        let err = update(
+            &db,
+            intruder_id,
+            playlist.id,
+            UpdatePlaylistInput {
+                name: Some("Hacked".to_string()),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(err, AppError::Forbidden(_)),
+            "Expected Forbidden, got {err:?}"
+        );
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// `update` with no fields supplied still succeeds and bumps `updated_at`.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn update_noop_succeeds() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Noop Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        let original_updated_at = playlist.updated_at;
+
+        // Sleep a tiny bit so the timestamp has a chance to change.
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+
+        let result = update(
+            &db,
+            owner_id,
+            playlist.id,
+            UpdatePlaylistInput {
+                name: None,
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("noop update should succeed");
+
+        // updated_at must be strictly later.
+        assert!(
+            result.updated_at >= original_updated_at,
+            "updated_at should be bumped"
+        );
+        // Name must be unchanged.
+        assert_eq!(result.name, "Noop Test");
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// `leave` returns BAD_USER_INPUT when the owner tries to leave.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn leave_owner_cannot_leave() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Owner Leave Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        let err = leave(&db, owner_id, playlist.id).await.unwrap_err();
+
+        assert!(
+            matches!(err, AppError::Validation(_)),
+            "Expected Validation, got {err:?}"
+        );
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// `leave` returns Validation when the caller is not a member.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn leave_non_member_returns_validation_error() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+        let outsider_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Non-Member Leave Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        let err = leave(&db, outsider_id, playlist.id).await.unwrap_err();
+
+        assert!(
+            matches!(err, AppError::Validation(_)),
+            "Expected Validation, got {err:?}"
+        );
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Integration tests — require a live MongoDB instance
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+
+    /// Full update round-trip: name, description, and voteThreshold are all
+    /// written and the returned document reflects the new values.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn update_partial_fields_integration() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+        let member_id = ObjectId::new();
+
+        // Create with 1 member, then add a second so threshold can be raised.
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Before Update".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        let playlist = join(&db, member_id, &playlist.invite_code)
+            .await
+            .expect("join should succeed");
+
+        // 2 members now — can set threshold to 2.
+        let updated = update(
+            &db,
+            owner_id,
+            playlist.id,
+            UpdatePlaylistInput {
+                name: Some("After Update".to_string()),
+                description: Some("Updated description".to_string()),
+                vote_threshold: Some(2),
+            },
+        )
+        .await
+        .expect("update should succeed");
+
+        assert_eq!(updated.name, "After Update");
+        assert_eq!(updated.description.as_deref(), Some("Updated description"));
+        assert_eq!(updated.vote_threshold, 2);
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// Full leave round-trip: member leaves, is removed from `member_ids`,
+    /// and the auto-managed threshold is recalculated.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn leave_removes_member_and_recalculates_threshold() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+        let member_a = ObjectId::new();
+        let member_b = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Leave Threshold Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        // 1 member → join two more → 3 members, threshold = ceil(3/2) = 2
+        let playlist = join(&db, member_a, &playlist.invite_code)
+            .await
+            .expect("join a should succeed");
+        let playlist = join(&db, member_b, &playlist.invite_code)
+            .await
+            .expect("join b should succeed");
+
+        assert_eq!(playlist.member_ids.len(), 3);
+        assert_eq!(playlist.vote_threshold, 2); // ceil(3/2)
+
+        // member_a leaves → 2 members, threshold = ceil(2/2) = 1
+        let result = leave(&db, member_a, playlist.id).await.expect("leave should succeed");
+        assert!(result, "leave should return true");
+
+        let updated = find_by_id(&db, playlist.id)
+            .await
+            .expect("find_by_id should succeed")
+            .expect("playlist should still exist");
+
+        assert_eq!(updated.member_ids.len(), 2);
+        assert!(!updated.member_ids.contains(&member_a), "member_a should be gone");
+        assert_eq!(updated.vote_threshold, 1); // ceil(2/2)
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// `leave` with a custom voteThreshold that exceeds the new member count
+    /// is clamped down to new_count (not recalculated by formula).
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn leave_clamps_custom_threshold() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+        let member_a = ObjectId::new();
+        let member_b = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Custom VT Clamp Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        let playlist = join(&db, member_a, &playlist.invite_code)
+            .await
+            .expect("join a");
+        let playlist = join(&db, member_b, &playlist.invite_code)
+            .await
+            .expect("join b");
+
+        // Override to a custom threshold of 3 (== member_count).
+        let playlist = update(
+            &db,
+            owner_id,
+            playlist.id,
+            UpdatePlaylistInput {
+                name: None,
+                description: None,
+                vote_threshold: Some(3),
+            },
+        )
+        .await
+        .expect("update should succeed");
+
+        assert_eq!(playlist.vote_threshold, 3);
+
+        // member_b leaves → 2 members; custom threshold 3 > 2, clamped to 2.
+        leave(&db, member_b, playlist.id)
+            .await
+            .expect("leave should succeed");
+
+        let after = find_by_id(&db, playlist.id)
+            .await
+            .expect("find_by_id")
+            .expect("playlist exists");
+
+        assert_eq!(after.member_ids.len(), 2);
+        assert_eq!(after.vote_threshold, 2, "clamped to new member count");
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// `find_by_member` returns only playlists the user belongs to.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn find_by_member_returns_correct_playlists() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+        let other_id = ObjectId::new();
+
+        let p1 = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Member Playlist 1".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create p1");
+
+        let p2 = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Member Playlist 2".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create p2");
+
+        // other_id joins p1 only
+        join(&db, other_id, &p1.invite_code)
+            .await
+            .expect("other_id joins p1");
+
+        let results = find_by_member(&db, other_id)
+            .await
+            .expect("find_by_member should succeed");
+
+        let ids: Vec<ObjectId> = results.iter().map(|p| p.id).collect();
+        assert!(ids.contains(&p1.id), "p1 should be in results");
+        assert!(!ids.contains(&p2.id), "p2 should NOT be in results");
+
+        // Cleanup
+        let col = db.collection::<Playlist>("playlists");
+        col.delete_one(doc! { "_id": p1.id }).await.unwrap();
+        col.delete_one(doc! { "_id": p2.id }).await.unwrap();
+    }
+}
+
