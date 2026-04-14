@@ -5,13 +5,17 @@ use std::str::FromStr;
 use crate::{
     error::{AppError, Result},
     jwt::AuthUser,
-    model::user::User,
+    model::{playlist::{Playlist, PlaylistGql}, user::User},
 };
 
 pub struct Query;
 
 #[Object]
 impl Query {
+    // -----------------------------------------------------------------------
+    // User
+    // -----------------------------------------------------------------------
+
     async fn me(&self, ctx: &Context<'_>) -> GraphqlResult<User> {
         let auth_user = ctx
             .data_opt::<AuthUser>()
@@ -30,5 +34,27 @@ impl Query {
             .ok_or_else(|| async_graphql::Error::new("UNAUTHENTICATED"))?;
 
         Ok(user)
+    }
+
+    // -----------------------------------------------------------------------
+    // Playlist
+    // -----------------------------------------------------------------------
+
+    /// Look up a playlist by its ID.
+    ///
+    /// Returns `NOT_FOUND` if no playlist with the given ID exists.
+    async fn playlist(&self, ctx: &Context<'_>, id: String) -> Result<PlaylistGql> {
+        let object_id = mongodb::bson::oid::ObjectId::from_str(&id)
+            .map_err(|_| AppError::Validation("Invalid playlist ID format".to_string()))?;
+
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+        let collection = db.collection::<Playlist>("playlists");
+
+        let playlist = collection
+            .find_one(doc! { "_id": object_id })
+            .await?
+            .ok_or_else(|| AppError::Validation("Playlist not found".to_string()))?;
+
+        Ok(PlaylistGql::from(playlist))
     }
 }
