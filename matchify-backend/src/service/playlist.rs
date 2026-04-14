@@ -406,6 +406,20 @@ pub async fn leave(db: &Database, caller_id: ObjectId, playlist_id: ObjectId) ->
     Ok(true)
 }
 
+// ---------------------------------------------------------------------------
+// Shared test helpers
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+async fn build_fake_db() -> Database {
+    let uri =
+        std::env::var("MONGO_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
+    let client = mongodb::Client::with_uri_str(&uri)
+        .await
+        .expect("MongoDB not reachable — set MONGO_URI or start a local instance");
+    client.database("matchify_test")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -469,13 +483,9 @@ mod tests {
     /// (defaults to `mongodb://localhost:27017`). Tests that exercise the DB
     /// are skipped when the env var `SKIP_DB_TESTS` is set.
     async fn build_fake_db() -> Database {
-        let uri =
-            std::env::var("MONGO_URI").unwrap_or_else(|_| "mongodb://localhost:27017".to_string());
-        let client = mongodb::Client::with_uri_str(&uri)
-            .await
-            .expect("MongoDB not reachable — set MONGO_URI or start a local instance");
-        client.database("matchify_test")
+        super::build_fake_db().await
     }
+
 
     #[tokio::test]
     #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
@@ -603,3 +613,495 @@ mod tests {
             .unwrap();
     }
 }
+
+// ---------------------------------------------------------------------------
+// Guard / validation tests — require a running MongoDB instance
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod update_validation_tests {
+    use super::*;
+
+    /// `update` rejects a voteThreshold of 0.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn update_rejects_zero_vote_threshold() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "VT Zero Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        let err = update(
+            &db,
+            owner_id,
+            playlist.id,
+            UpdatePlaylistInput {
+                name: None,
+                description: None,
+                vote_threshold: Some(0),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(err, AppError::Validation(_)),
+            "Expected Validation, got {err:?}"
+        );
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// `update` rejects a voteThreshold greater than the member count.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn update_rejects_vote_threshold_above_member_count() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "VT Ceiling Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        // 1 member; threshold of 2 should be rejected.
+        let err = update(
+            &db,
+            owner_id,
+            playlist.id,
+            UpdatePlaylistInput {
+                name: None,
+                description: None,
+                vote_threshold: Some(2),
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(err, AppError::Validation(_)),
+            "Expected Validation, got {err:?}"
+        );
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// Non-owner cannot call `update`.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn update_forbidden_for_non_owner() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+        let intruder_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Owner Guard Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        let err = update(
+            &db,
+            intruder_id,
+            playlist.id,
+            UpdatePlaylistInput {
+                name: Some("Hacked".to_string()),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .unwrap_err();
+
+        assert!(
+            matches!(err, AppError::Forbidden(_)),
+            "Expected Forbidden, got {err:?}"
+        );
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// `update` with no fields supplied still succeeds and bumps `updated_at`.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn update_noop_succeeds() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Noop Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        let original_updated_at = playlist.updated_at;
+
+        // Sleep a tiny bit so the timestamp has a chance to change.
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+
+        let result = update(
+            &db,
+            owner_id,
+            playlist.id,
+            UpdatePlaylistInput {
+                name: None,
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("noop update should succeed");
+
+        // updated_at must be strictly later.
+        assert!(
+            result.updated_at >= original_updated_at,
+            "updated_at should be bumped"
+        );
+        // Name must be unchanged.
+        assert_eq!(result.name, "Noop Test");
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// `leave` returns BAD_USER_INPUT when the owner tries to leave.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn leave_owner_cannot_leave() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Owner Leave Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        let err = leave(&db, owner_id, playlist.id).await.unwrap_err();
+
+        assert!(
+            matches!(err, AppError::Validation(_)),
+            "Expected Validation, got {err:?}"
+        );
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// `leave` returns Validation when the caller is not a member.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn leave_non_member_returns_validation_error() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+        let outsider_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Non-Member Leave Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        let err = leave(&db, outsider_id, playlist.id).await.unwrap_err();
+
+        assert!(
+            matches!(err, AppError::Validation(_)),
+            "Expected Validation, got {err:?}"
+        );
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Integration tests — require a live MongoDB instance
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod integration_tests {
+    use super::*;
+
+    /// Full update round-trip: name, description, and voteThreshold are all
+    /// written and the returned document reflects the new values.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn update_partial_fields_integration() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+        let member_id = ObjectId::new();
+
+        // Create with 1 member, then add a second so threshold can be raised.
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Before Update".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        let playlist = join(&db, member_id, &playlist.invite_code)
+            .await
+            .expect("join should succeed");
+
+        // 2 members now — can set threshold to 2.
+        let updated = update(
+            &db,
+            owner_id,
+            playlist.id,
+            UpdatePlaylistInput {
+                name: Some("After Update".to_string()),
+                description: Some("Updated description".to_string()),
+                vote_threshold: Some(2),
+            },
+        )
+        .await
+        .expect("update should succeed");
+
+        assert_eq!(updated.name, "After Update");
+        assert_eq!(updated.description.as_deref(), Some("Updated description"));
+        assert_eq!(updated.vote_threshold, 2);
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// Full leave round-trip: member leaves, is removed from `member_ids`,
+    /// and the auto-managed threshold is recalculated.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn leave_removes_member_and_recalculates_threshold() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+        let member_a = ObjectId::new();
+        let member_b = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Leave Threshold Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        // 1 member → join two more → 3 members, threshold = ceil(3/2) = 2
+        let playlist = join(&db, member_a, &playlist.invite_code)
+            .await
+            .expect("join a should succeed");
+        let playlist = join(&db, member_b, &playlist.invite_code)
+            .await
+            .expect("join b should succeed");
+
+        assert_eq!(playlist.member_ids.len(), 3);
+        assert_eq!(playlist.vote_threshold, 2); // ceil(3/2)
+
+        // member_a leaves → 2 members, threshold = ceil(2/2) = 1
+        let result = leave(&db, member_a, playlist.id).await.expect("leave should succeed");
+        assert!(result, "leave should return true");
+
+        let updated = find_by_id(&db, playlist.id)
+            .await
+            .expect("find_by_id should succeed")
+            .expect("playlist should still exist");
+
+        assert_eq!(updated.member_ids.len(), 2);
+        assert!(!updated.member_ids.contains(&member_a), "member_a should be gone");
+        assert_eq!(updated.vote_threshold, 1); // ceil(2/2)
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// `leave` with a custom voteThreshold that exceeds the new member count
+    /// is clamped down to new_count (not recalculated by formula).
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn leave_clamps_custom_threshold() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+        let member_a = ObjectId::new();
+        let member_b = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Custom VT Clamp Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        let playlist = join(&db, member_a, &playlist.invite_code)
+            .await
+            .expect("join a");
+        let playlist = join(&db, member_b, &playlist.invite_code)
+            .await
+            .expect("join b");
+
+        // Override to a custom threshold of 3 (== member_count).
+        let playlist = update(
+            &db,
+            owner_id,
+            playlist.id,
+            UpdatePlaylistInput {
+                name: None,
+                description: None,
+                vote_threshold: Some(3),
+            },
+        )
+        .await
+        .expect("update should succeed");
+
+        assert_eq!(playlist.vote_threshold, 3);
+
+        // member_b leaves → 2 members; custom threshold 3 > 2, clamped to 2.
+        leave(&db, member_b, playlist.id)
+            .await
+            .expect("leave should succeed");
+
+        let after = find_by_id(&db, playlist.id)
+            .await
+            .expect("find_by_id")
+            .expect("playlist exists");
+
+        assert_eq!(after.member_ids.len(), 2);
+        assert_eq!(after.vote_threshold, 2, "clamped to new member count");
+
+        // Cleanup
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    /// `find_by_member` returns only playlists the user belongs to.
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn find_by_member_returns_correct_playlists() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+        let other_id = ObjectId::new();
+
+        let p1 = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Member Playlist 1".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create p1");
+
+        let p2 = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Member Playlist 2".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create p2");
+
+        // other_id joins p1 only
+        join(&db, other_id, &p1.invite_code)
+            .await
+            .expect("other_id joins p1");
+
+        let results = find_by_member(&db, other_id)
+            .await
+            .expect("find_by_member should succeed");
+
+        let ids: Vec<ObjectId> = results.iter().map(|p| p.id).collect();
+        assert!(ids.contains(&p1.id), "p1 should be in results");
+        assert!(!ids.contains(&p2.id), "p2 should NOT be in results");
+
+        // Cleanup
+        let col = db.collection::<Playlist>("playlists");
+        col.delete_one(doc! { "_id": p1.id }).await.unwrap();
+        col.delete_one(doc! { "_id": p2.id }).await.unwrap();
+    }
+}
+
