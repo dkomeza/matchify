@@ -14,7 +14,6 @@ pub struct User {
     #[graphql(skip)]
     pub access_token: String,  // encrypted at rest
     #[graphql(skip)]
-    pub access_token: String,  // encrypted at rest
     pub refresh_token: String, // encrypted at rest
     pub token_expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
