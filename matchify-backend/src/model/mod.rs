@@ -1,1 +1,10 @@
-// Models module: DB structs (User, Playlist, Song, Vote)
+pub mod user;
+pub mod playlist;
+pub mod song;
+pub mod vote;
+pub mod spotify;
+
+pub use user::User;
+pub use playlist::Playlist;
+pub use song::{Song, TrackStatus};
+pub use vote::{Vote, VoteType};

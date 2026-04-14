@@ -4,7 +4,7 @@ use serde::Deserialize;
 pub struct AppConfig {
     pub port: u16,
     pub mongo_uri: String,
-    pub mongo_db: String,
+    pub encryption_key: String,
 }
 
 impl AppConfig {
@@ -20,12 +20,12 @@ impl AppConfig {
             .expect("PORT must be a valid u16 number");
 
         let mongo_uri = std::env::var("MONGO_URI").expect("MONGO_URI must be set");
-        let mongo_db = std::env::var("MONGO_DB").expect("MONGO_DB must be set");
+        let encryption_key = std::env::var("ENCRYPTION_KEY").expect("ENCRYPTION_KEY must be set");
 
         Self {
             port,
             mongo_uri,
-            mongo_db,
+            encryption_key,
         }
     }
 }

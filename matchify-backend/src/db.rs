@@ -1,12 +1,17 @@
-use crate::config::AppConfig;
-use crate::error::Result;
-use mongodb::bson::doc;
-use mongodb::{Client, Database};
+use mongodb::{Client, options::ClientOptions, bson::doc};
+pub mod indexes;
 
-pub async fn get_mongo_database(config: &AppConfig) -> Result<Database> {
-    let client = Client::with_uri_str(&config.mongo_uri).await?;
-    let db = client.database(&config.mongo_db);
-    db.run_command(doc! { "ping": 1 }).await?;
+pub async fn connect(uri: &str) -> mongodb::error::Result<Client> {
+    let mut client_options = ClientOptions::parse(uri).await?;
+    // You can customize options here if needed
+    let client = Client::with_options(client_options)?;
+    
+    // Ping to verify connection
+    client
+        .database("matchify")
+        .run_command(doc! { "ping": 1 })
+        .await?;
+        
     tracing::info!("Successfully connected to MongoDB");
-    Ok(db)
+    Ok(client)
 }
