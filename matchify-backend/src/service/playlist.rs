@@ -191,6 +191,29 @@ pub async fn join(db: &Database, caller_id: ObjectId, invite_code: &str) -> Resu
     Ok(updated)
 }
 
+/// Find a playlist by its ObjectId.
+///
+/// Returns `Ok(Some(playlist))` when found, `Ok(None)` when not found.
+pub async fn find_by_id(db: &Database, id: ObjectId) -> Result<Option<Playlist>> {
+    let collection = db.collection::<Playlist>("playlists");
+    let playlist = collection.find_one(doc! { "_id": id }).await?;
+    Ok(playlist)
+}
+
+/// Return all playlists where `user_id` appears in `member_ids`.
+pub async fn find_by_member(db: &Database, user_id: ObjectId) -> Result<Vec<Playlist>> {
+    use mongodb::bson::doc;
+    use futures::TryStreamExt;
+
+    let collection = db.collection::<Playlist>("playlists");
+    let cursor = collection
+        .find(doc! { "member_ids": user_id })
+        .await?;
+
+    let playlists: Vec<Playlist> = cursor.try_collect().await?;
+    Ok(playlists)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

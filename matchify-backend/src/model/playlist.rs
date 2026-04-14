@@ -1,10 +1,24 @@
-use async_graphql::SimpleObject;
+use async_graphql::{Context, Object, Result as GraphqlResult};
 use chrono::{DateTime, Utc};
-use mongodb::bson::oid::ObjectId;
+use futures::TryStreamExt;
+use mongodb::{
+    bson::{doc, oid::ObjectId},
+    Database,
+};
 use serde::{Deserialize, Serialize};
 
-/// MongoDB document model — all IDs are native ObjectId.
-#[derive(Debug, Serialize, Deserialize)]
+use crate::{
+    error::AppError,
+    model::song::{Song, SongGql},
+    model::user::User,
+};
+
+// ---------------------------------------------------------------------------
+// MongoDB document
+// ---------------------------------------------------------------------------
+
+/// Raw MongoDB document — all IDs are native ObjectId.
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Playlist {
     #[serde(rename = "_id")]
     pub id: ObjectId,
@@ -19,34 +33,125 @@ pub struct Playlist {
     pub updated_at: DateTime<Utc>,
 }
 
-/// GraphQL view — IDs serialized as hex strings for JSON transport.
-#[derive(Debug, SimpleObject)]
-pub struct PlaylistGql {
-    pub id: String,
-    pub name: String,
-    pub description: Option<String>,
-    pub owner_id: String,
-    pub member_ids: Vec<String>,
-    pub invite_code: String,
-    pub vote_threshold: i32,
-    pub spotify_playlist_id: Option<String>,
-    pub created_at: DateTime<Utc>,
-    pub updated_at: DateTime<Utc>,
-}
+// ---------------------------------------------------------------------------
+// GraphQL view
+// ---------------------------------------------------------------------------
+
+/// Newtype that wraps a `Playlist` document and provides field-level resolvers.
+pub struct PlaylistGql(pub Playlist);
 
 impl From<Playlist> for PlaylistGql {
     fn from(p: Playlist) -> Self {
-        PlaylistGql {
-            id: p.id.to_hex(),
-            name: p.name,
-            description: p.description,
-            owner_id: p.owner_id.to_hex(),
-            member_ids: p.member_ids.iter().map(|id| id.to_hex()).collect(),
-            invite_code: p.invite_code,
-            vote_threshold: p.vote_threshold,
-            spotify_playlist_id: p.spotify_playlist_id,
-            created_at: p.created_at,
-            updated_at: p.updated_at,
-        }
+        PlaylistGql(p)
+    }
+}
+
+#[Object]
+impl PlaylistGql {
+    // --- Scalar fields ---
+
+    async fn id(&self) -> String {
+        self.0.id.to_hex()
+    }
+
+    async fn name(&self) -> &str {
+        &self.0.name
+    }
+
+    async fn description(&self) -> Option<&str> {
+        self.0.description.as_deref()
+    }
+
+    async fn owner_id(&self) -> String {
+        self.0.owner_id.to_hex()
+    }
+
+    async fn member_ids(&self) -> Vec<String> {
+        self.0.member_ids.iter().map(|id| id.to_hex()).collect()
+    }
+
+    async fn invite_code(&self) -> &str {
+        &self.0.invite_code
+    }
+
+    async fn vote_threshold(&self) -> i32 {
+        self.0.vote_threshold
+    }
+
+    async fn spotify_playlist_id(&self) -> Option<&str> {
+        self.0.spotify_playlist_id.as_deref()
+    }
+
+    async fn created_at(&self) -> DateTime<Utc> {
+        self.0.created_at
+    }
+
+    async fn updated_at(&self) -> DateTime<Utc> {
+        self.0.updated_at
+    }
+
+    // --- Nested resolvers ---
+
+    /// Fetch the playlist owner from the `users` collection.
+    async fn owner(&self, ctx: &Context<'_>) -> GraphqlResult<User> {
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+        let collection = db.collection::<User>("users");
+
+        let user = collection
+            .find_one(doc! { "_id": self.0.owner_id })
+            .await
+            .map_err(AppError::Database)?
+            .ok_or_else(|| AppError::NotFound("Playlist owner not found".to_string()))?;
+
+        Ok(user)
+    }
+
+    /// Fetch all playlist members from the `users` collection.
+    async fn members(&self, ctx: &Context<'_>) -> GraphqlResult<Vec<User>> {
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+        let collection = db.collection::<User>("users");
+
+        let member_ids: Vec<_> = self.0.member_ids.clone();
+        let cursor = collection
+            .find(doc! { "_id": { "$in": member_ids } })
+            .await
+            .map_err(AppError::Database)?;
+
+        let users: Vec<User> = cursor.try_collect().await.map_err(AppError::Database)?;
+        Ok(users)
+    }
+
+    /// Fetch approved tracks for this playlist.
+    async fn tracks(&self, ctx: &Context<'_>) -> GraphqlResult<Vec<SongGql>> {
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+        let collection = db.collection::<Song>("songs");
+
+        let cursor = collection
+            .find(doc! {
+                "playlist_id": self.0.id,
+                "status": "Approved",
+            })
+            .await
+            .map_err(AppError::Database)?;
+
+        let songs: Vec<Song> = cursor.try_collect().await.map_err(AppError::Database)?;
+        Ok(songs.into_iter().map(SongGql::from).collect())
+    }
+
+    /// Fetch pending track proposals for this playlist.
+    async fn proposals(&self, ctx: &Context<'_>) -> GraphqlResult<Vec<SongGql>> {
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+        let collection = db.collection::<Song>("songs");
+
+        let cursor = collection
+            .find(doc! {
+                "playlist_id": self.0.id,
+                "status": "Pending",
+            })
+            .await
+            .map_err(AppError::Database)?;
+
+        let songs: Vec<Song> = cursor.try_collect().await.map_err(AppError::Database)?;
+        Ok(songs.into_iter().map(SongGql::from).collect())
     }
 }

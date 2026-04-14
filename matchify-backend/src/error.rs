@@ -26,6 +26,9 @@ pub enum AppError {
     #[error("Not found: {0}")]
     NotFound(String),
 
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
+
     #[error("Unexpected error")]
     Unexpected,
 }
@@ -42,6 +45,7 @@ impl ErrorExtensions for AppError {
                 AppError::Validation(_) => e.set("code", "BAD_USER_INPUT"),
                 AppError::InviteCodeConflict => e.set("code", "INTERNAL_SERVER_ERROR"),
                 AppError::NotFound(_) => e.set("code", "NOT_FOUND"),
+                AppError::Forbidden(_) => e.set("code", "FORBIDDEN"),
                 AppError::Unexpected => e.set("code", "INTERNAL_SERVER_ERROR"),
             }
         })
