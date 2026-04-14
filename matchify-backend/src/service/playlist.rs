@@ -214,6 +214,198 @@ pub async fn find_by_member(db: &Database, user_id: ObjectId) -> Result<Vec<Play
     Ok(playlists)
 }
 
+// ---------------------------------------------------------------------------
+// Update
+// ---------------------------------------------------------------------------
+
+pub struct UpdatePlaylistInput {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    /// `None` means "don't touch". `Some(None)` is not modelled — the field is
+    /// simply omitted from `$set` when the caller doesn't supply it.
+    pub vote_threshold: Option<i32>,
+}
+
+/// Partially update a playlist's metadata.
+///
+/// * Only the owner may call this (`owner_id == caller_id`).
+/// * Only fields present in `input` are written.
+/// * `vote_threshold` must be ≥ 1 and ≤ current member count.
+///
+/// Returns the updated document.
+pub async fn update(
+    db: &Database,
+    caller_id: ObjectId,
+    playlist_id: ObjectId,
+    input: UpdatePlaylistInput,
+) -> Result<Playlist> {
+    use mongodb::options::{FindOneAndUpdateOptions, ReturnDocument};
+
+    let collection = db.collection::<Playlist>("playlists");
+
+    // Fetch current state for auth + validation.
+    let playlist = collection
+        .find_one(doc! { "_id": playlist_id })
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Playlist {playlist_id} not found")))?;
+
+    // Authorization: only the owner may update.
+    if playlist.owner_id != caller_id {
+        return Err(AppError::Forbidden(
+            "Only the playlist owner can update it".to_string(),
+        ));
+    }
+
+    // Validate vote_threshold when supplied.
+    if let Some(vt) = input.vote_threshold {
+        if vt < 1 {
+            return Err(AppError::Validation(
+                "voteThreshold must be at least 1".to_string(),
+            ));
+        }
+        let member_count = playlist.member_ids.len() as i32;
+        if vt > member_count {
+            return Err(AppError::Validation(format!(
+                "voteThreshold ({vt}) cannot exceed the number of members ({member_count})"
+            )));
+        }
+    }
+
+    // Build the $set document — only include supplied fields.
+    let mut set_doc = mongodb::bson::Document::new();
+
+    if let Some(name) = &input.name {
+        let name = name.trim().to_string();
+        if name.is_empty() {
+            return Err(AppError::Validation(
+                "Playlist name must not be empty".to_string(),
+            ));
+        }
+        if name.len() > 100 {
+            return Err(AppError::Validation(
+                "Playlist name must be at most 100 characters".to_string(),
+            ));
+        }
+        set_doc.insert("name", name);
+    }
+
+    if let Some(desc) = &input.description {
+        set_doc.insert("description", desc.as_str());
+    }
+
+    if let Some(vt) = input.vote_threshold {
+        set_doc.insert("vote_threshold", vt);
+    }
+
+    // Always bump updated_at.
+    let now = mongodb::bson::DateTime::from_millis(Utc::now().timestamp_millis());
+    set_doc.insert("updated_at", now);
+
+    let updated = collection
+        .find_one_and_update(doc! { "_id": playlist_id }, doc! { "$set": set_doc })
+        .with_options(
+            FindOneAndUpdateOptions::builder()
+                .return_document(ReturnDocument::After)
+                .build(),
+        )
+        .await?
+        .ok_or(AppError::Unexpected)?;
+
+    tracing::info!(
+        playlist_id = %playlist_id,
+        caller_id = %caller_id,
+        "updatePlaylist: metadata updated"
+    );
+
+    Ok(updated)
+}
+
+// ---------------------------------------------------------------------------
+// Leave
+// ---------------------------------------------------------------------------
+
+/// Remove `caller_id` from `member_ids`.
+///
+/// * The owner cannot leave — they must transfer ownership or delete the
+///   playlist instead.
+/// * If the remaining threshold was auto-managed (i.e. equals `ceil(old/2)`),
+///   it is recalculated to `ceil(new/2)`. Custom thresholds are clamped down
+///   to the new member count if they would otherwise exceed it.
+///
+/// Returns `true` on success.
+pub async fn leave(db: &Database, caller_id: ObjectId, playlist_id: ObjectId) -> Result<bool> {
+    use mongodb::options::{FindOneAndUpdateOptions, ReturnDocument};
+
+    let collection = db.collection::<Playlist>("playlists");
+
+    let playlist = collection
+        .find_one(doc! { "_id": playlist_id })
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Playlist {playlist_id} not found")))?;
+
+    // Guard: owner cannot leave.
+    if playlist.owner_id == caller_id {
+        return Err(AppError::Validation(
+            "The playlist owner cannot leave. Transfer ownership or delete the playlist instead."
+                .to_string(),
+        ));
+    }
+
+    // Guard: must be a member.
+    if !playlist.member_ids.contains(&caller_id) {
+        return Err(AppError::Validation(
+            "You are not a member of this playlist".to_string(),
+        ));
+    }
+
+    let old_count = playlist.member_ids.len() as i32;
+    let new_count = old_count - 1;
+
+    // Recalculate threshold.
+    let auto_threshold = {
+        // ceil(old_count / 2) using integer arithmetic
+        (old_count + 1) / 2
+    };
+    let new_threshold = if playlist.vote_threshold == auto_threshold {
+        // Auto-managed: recalculate for new_count.
+        (new_count + 1) / 2
+    } else {
+        // Custom threshold: clamp to new_count if it would exceed it.
+        playlist.vote_threshold.min(new_count).max(1)
+    };
+
+    let now = mongodb::bson::DateTime::from_millis(Utc::now().timestamp_millis());
+
+    collection
+        .find_one_and_update(
+            doc! { "_id": playlist_id },
+            doc! {
+                "$pull": { "member_ids": caller_id },
+                "$set": {
+                    "vote_threshold": new_threshold,
+                    "updated_at": now,
+                },
+            },
+        )
+        .with_options(
+            FindOneAndUpdateOptions::builder()
+                .return_document(ReturnDocument::After)
+                .build(),
+        )
+        .await?
+        .ok_or(AppError::Unexpected)?;
+
+    tracing::info!(
+        playlist_id = %playlist_id,
+        caller_id = %caller_id,
+        new_member_count = new_count,
+        vote_threshold = new_threshold,
+        "leavePlaylist: member removed"
+    );
+
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
