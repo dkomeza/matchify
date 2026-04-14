@@ -1,12 +1,12 @@
 #[derive(serde::Deserialize)]
-struct TokenResponse {
+pub struct TokenResponse {
     access_token: String,
-    refresh_token: String,
+    refresh_token: Option<String>,
     expires_in: u64,
 }
 
 #[derive(serde::Deserialize)]
-struct SpotifyUser {
+pub struct SpotifyUser {
     id: String,
     email: Option<String>,
     display_name: Option<String>,

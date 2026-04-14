@@ -30,13 +30,18 @@ async fn main() {
         }),
     );
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:8082").await.unwrap();
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8082".to_string());
+    let addr = format!("0.0.0.0:{}", port);
+    let listener = tokio::net::TcpListener::bind(&addr)
+        .await
+        .expect(&format!("Failed to bind to {}", addr));
+    println!("Server running on {}", addr);
     axum::serve(listener, app).await.unwrap();
 }
 
 async fn get_mongo_database() -> mongodb::Database {
     let mongo_uri = std::env::var("MONGO_URI").expect("MONGO_URI must be set");
-    let mongo_database = std::env::var("MONGO_DB").expect("MONGO_DATABASE must be set");
+    let mongo_database = std::env::var("MONGO_DB").expect("MONGO_DB must be set");
 
     let client = mongodb::Client::with_uri_str(&mongo_uri).await.unwrap();
     let db = client.database(&mongo_database);
