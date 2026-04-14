@@ -23,6 +23,9 @@ pub enum AppError {
     #[error("Failed to generate a unique invite code after multiple retries")]
     InviteCodeConflict,
 
+    #[error("Not found: {0}")]
+    NotFound(String),
+
     #[error("Unexpected error")]
     Unexpected,
 }
@@ -38,6 +41,7 @@ impl ErrorExtensions for AppError {
                 AppError::Crypto(_) => e.set("code", "CRYPTO_ERROR"),
                 AppError::Validation(_) => e.set("code", "BAD_USER_INPUT"),
                 AppError::InviteCodeConflict => e.set("code", "INTERNAL_SERVER_ERROR"),
+                AppError::NotFound(_) => e.set("code", "NOT_FOUND"),
                 AppError::Unexpected => e.set("code", "INTERNAL_SERVER_ERROR"),
             }
         })

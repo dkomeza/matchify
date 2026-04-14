@@ -156,4 +156,31 @@ impl Mutation {
 
         Ok(PlaylistGql::from(playlist))
     }
+
+    /// Join an existing playlist using its invite code.
+    ///
+    /// Requires a valid JWT in the `Authorization: Bearer <token>` header.
+    /// Returns `NOT_FOUND` when the invite code is invalid, and is idempotent
+    /// if the caller is already a member.
+    async fn join_playlist(
+        &self,
+        ctx: &Context<'_>,
+        invite_code: String,
+    ) -> Result<PlaylistGql> {
+        // Auth guard
+        let auth_user = ctx
+            .data_opt::<AuthUser>()
+            .ok_or_else(|| {
+                AppError::SpotifyAuth("You must be logged in to join a playlist".to_string())
+            })?;
+
+        let caller_id = ObjectId::parse_str(&auth_user.user_id)
+            .map_err(|_| AppError::Unexpected)?;
+
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+
+        let playlist = playlist_service::join(db, caller_id, &invite_code).await?;
+
+        Ok(PlaylistGql::from(playlist))
+    }
 }
