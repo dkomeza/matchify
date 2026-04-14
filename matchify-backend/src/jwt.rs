@@ -1,8 +1,8 @@
 use axum::{
-    async_trait,
     extract::FromRequestParts,
     http::{request::Parts, StatusCode},
 };
+
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 use mongodb::bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
@@ -52,7 +52,6 @@ pub struct AuthUser {
     pub user_id: String,
 }
 
-#[async_trait]
 impl<S> FromRequestParts<S> for AuthUser
 where
     S: Send + Sync,
