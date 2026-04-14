@@ -4,13 +4,18 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-async-graphql = "7.2.1"
-async-graphql-axum = "7.2.1"
-axum = { version = "0.8.8", features = ["http2"] }
-dotenv = "0.15.0"
-jsonwebtoken = "10.3.0"
-mongodb = "3.5.2"
-reqwest = "0.13.2"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.149"
-tokio = { version = "1.50.0", features = ["rt-multi-thread", "macros", "net"] }
+axum = { version = "0.8", features = ["macros"] }
+async-graphql = { version = "7", features = ["chrono", "uuid"] }
+async-graphql-axum = "7"
+mongodb = "3"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+reqwest = { version = "0.12", features = ["json"] }
+jsonwebtoken = "9"
+dotenvy = "0.15"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+thiserror = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
