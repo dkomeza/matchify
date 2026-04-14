@@ -5,7 +5,7 @@ edition = "2024"
 
 [dependencies]
 axum = { version = "0.8", features = ["macros"] }
-async-graphql = { version = "7", features = ["chrono", "uuid"] }
+async-graphql = { version = "7", features = ["chrono", "uuid", "bson"] }
 async-graphql-axum = "7"
 mongodb = "3"
 tokio = { version = "1", features = ["full"] }
@@ -22,3 +22,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 aes-gcm = "0.10.3"
 base64 = "0.22.1"
 rand = "0.8"
+
+[dev-dependencies]
+mockito = "1.7.2"
