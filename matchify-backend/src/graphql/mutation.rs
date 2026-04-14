@@ -38,6 +38,16 @@ pub struct CreatePlaylistInput {
     pub vote_threshold: Option<i32>,
 }
 
+#[derive(InputObject)]
+pub struct UpdatePlaylistInput {
+    /// New name (1–100 characters). Omit to leave unchanged.
+    pub name: Option<String>,
+    /// New description. Omit to leave unchanged.
+    pub description: Option<String>,
+    /// New vote threshold (≥ 1, ≤ member count). Omit to leave unchanged.
+    pub vote_threshold: Option<i32>,
+}
+
 // ---------------------------------------------------------------------------
 // Mutation root
 // ---------------------------------------------------------------------------
@@ -182,5 +192,66 @@ impl Mutation {
         let playlist = playlist_service::join(db, caller_id, &invite_code).await?;
 
         Ok(PlaylistGql::from(playlist))
+    }
+
+    /// Update a playlist's metadata (owner only).
+    ///
+    /// Returns `FORBIDDEN` when the caller is not the owner.
+    /// Returns `BAD_USER_INPUT` on validation failures.
+    async fn update_playlist(
+        &self,
+        ctx: &Context<'_>,
+        id: String,
+        input: UpdatePlaylistInput,
+    ) -> Result<PlaylistGql> {
+        let auth_user = ctx
+            .data_opt::<AuthUser>()
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let caller_id = ObjectId::parse_str(&auth_user.user_id)
+            .map_err(|_| AppError::Unexpected)?;
+
+        let playlist_id = ObjectId::parse_str(&id)
+            .map_err(|_| AppError::Validation("Invalid playlist ID format".to_string()))?;
+
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+
+        let playlist = playlist_service::update(
+            db,
+            caller_id,
+            playlist_id,
+            playlist_service::UpdatePlaylistInput {
+                name: input.name,
+                description: input.description,
+                vote_threshold: input.vote_threshold,
+            },
+        )
+        .await?;
+
+        Ok(PlaylistGql::from(playlist))
+    }
+
+    /// Remove the authenticated caller from the playlist.
+    ///
+    /// Returns `BAD_USER_INPUT` when the caller is the owner (owners cannot
+    /// leave — they must delete the playlist instead).
+    async fn leave_playlist(
+        &self,
+        ctx: &Context<'_>,
+        playlist_id: String,
+    ) -> Result<bool> {
+        let auth_user = ctx
+            .data_opt::<AuthUser>()
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let caller_id = ObjectId::parse_str(&auth_user.user_id)
+            .map_err(|_| AppError::Unexpected)?;
+
+        let pid = ObjectId::parse_str(&playlist_id)
+            .map_err(|_| AppError::Validation("Invalid playlist ID format".to_string()))?;
+
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+
+        playlist_service::leave(db, caller_id, pid).await
     }
 }
