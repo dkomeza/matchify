@@ -17,6 +17,12 @@ pub enum AppError {
     #[error("Crypto error: {0}")]
     Crypto(#[from] crate::crypto::CryptoError),
 
+    #[error("Validation error: {0}")]
+    Validation(String),
+
+    #[error("Failed to generate a unique invite code after multiple retries")]
+    InviteCodeConflict,
+
     #[error("Unexpected error")]
     Unexpected,
 }
@@ -30,6 +36,8 @@ impl ErrorExtensions for AppError {
                 AppError::SpotifyAuth(_) => e.set("code", "UNAUTHENTICATED"),
                 AppError::Jwt(_) => e.set("code", "JWT_ERROR"),
                 AppError::Crypto(_) => e.set("code", "CRYPTO_ERROR"),
+                AppError::Validation(_) => e.set("code", "BAD_USER_INPUT"),
+                AppError::InviteCodeConflict => e.set("code", "INTERNAL_SERVER_ERROR"),
                 AppError::Unexpected => e.set("code", "INTERNAL_SERVER_ERROR"),
             }
         })

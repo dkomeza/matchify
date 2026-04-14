@@ -1,4 +1,4 @@
-use async_graphql::{Context, Object, SimpleObject};
+use async_graphql::{Context, InputObject, Object, SimpleObject};
 use chrono::{Duration, Utc};
 use mongodb::{
     bson::{doc, oid::ObjectId},
@@ -10,9 +10,14 @@ use crate::{
     crypto::encrypt_token,
     error::{AppError, Result},
     jwt,
-    model::user::User,
-    service::spotify::SpotifyClient,
+    jwt::AuthUser,
+    model::{playlist::PlaylistGql, user::User},
+    service::{playlist as playlist_service, spotify::SpotifyClient},
 };
+
+// ---------------------------------------------------------------------------
+// Auth payload
+// ---------------------------------------------------------------------------
 
 #[derive(SimpleObject)]
 pub struct AuthPayload {
@@ -20,10 +25,31 @@ pub struct AuthPayload {
     user: User,
 }
 
+// ---------------------------------------------------------------------------
+// Playlist inputs
+// ---------------------------------------------------------------------------
+
+#[derive(InputObject)]
+pub struct CreatePlaylistInput {
+    /// Required. 1–100 characters.
+    pub name: String,
+    pub description: Option<String>,
+    /// Minimum votes required to add a song. Defaults to 1 (solo owner).
+    pub vote_threshold: Option<i32>,
+}
+
+// ---------------------------------------------------------------------------
+// Mutation root
+// ---------------------------------------------------------------------------
+
 pub struct Mutation;
 
 #[Object]
 impl Mutation {
+    // -----------------------------------------------------------------------
+    // Spotify auth
+    // -----------------------------------------------------------------------
+
     async fn login_with_spotify(
         &self,
         ctx: &Context<'_>,
@@ -48,7 +74,7 @@ impl Mutation {
         let expires_at = Utc::now() + Duration::seconds(tokens.expires_in as i64);
 
         let collection = db.collection::<User>("users");
-        
+
         let mut set_doc = doc! {
             "display_name": profile.display_name.unwrap_or_else(|| "Unknown".to_string()),
             "email": profile.email.unwrap_or_default(),
@@ -74,8 +100,12 @@ impl Mutation {
 
         let user = collection
             .find_one_and_update(doc! { "spotify_id": &profile.id }, update)
-            .upsert(true)
-            .return_document(ReturnDocument::After)
+            .with_options(
+                FindOneAndUpdateOptions::builder()
+                    .upsert(true)
+                    .return_document(ReturnDocument::After)
+                    .build(),
+            )
             .await?
             .ok_or(AppError::Unexpected)?;
 
@@ -85,5 +115,45 @@ impl Mutation {
             token: jwt_token,
             user,
         })
+    }
+
+    // -----------------------------------------------------------------------
+    // Playlist management
+    // -----------------------------------------------------------------------
+
+    /// Create a new collaborative playlist.
+    ///
+    /// Requires a valid JWT in the `Authorization: Bearer <token>` header.
+    /// Returns `UNAUTHENTICATED` if the caller is not logged in.
+    async fn create_playlist(
+        &self,
+        ctx: &Context<'_>,
+        input: CreatePlaylistInput,
+    ) -> Result<PlaylistGql> {
+        // Auth guard
+        let auth_user = ctx
+            .data_opt::<AuthUser>()
+            .ok_or_else(|| AppError::Validation("UNAUTHENTICATED".to_string()))
+            .map_err(|_| {
+                AppError::SpotifyAuth("You must be logged in to create a playlist".to_string())
+            })?;
+
+        let owner_id = ObjectId::parse_str(&auth_user.user_id)
+            .map_err(|_| AppError::Unexpected)?;
+
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+
+        let playlist = playlist_service::create(
+            db,
+            owner_id,
+            playlist_service::CreatePlaylistInput {
+                name: input.name,
+                description: input.description,
+                vote_threshold: input.vote_threshold,
+            },
+        )
+        .await?;
+
+        Ok(PlaylistGql::from(playlist))
     }
 }
