@@ -1,14 +1,34 @@
-use axum::{Router, routing::get};
+use async_graphql::{EmptyMutation, EmptySubscription, Object, Schema};
+use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
+use axum::{Router, routing::post};
 use mongodb::bson::doc;
 
 mod model;
+
+// 1. Define your data logic
+struct Query;
+
+#[Object]
+impl Query {
+    async fn hello(&self) -> &str {
+        "Hello from Rust!"
+    }
+}
 
 #[tokio::main]
 async fn main() {
     let _ = dotenv::dotenv();
 
+    let schema = Schema::build(Query, EmptyMutation, EmptySubscription).finish();
+
     let db = get_mongo_database().await;
-    let app = Router::new().route("/", get(|| async { "Hello, World!" }));
+    let app = Router::new().route(
+        "/graphql",
+        post(move |req: GraphQLRequest| {
+            let schema = schema.clone();
+            async move { GraphQLResponse::from(schema.execute(req.into_inner()).await) }
+        }),
+    );
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:8082").await.unwrap();
     axum::serve(listener, app).await.unwrap();
