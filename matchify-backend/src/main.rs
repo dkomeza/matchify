@@ -1,4 +1,5 @@
 pub mod config;
+pub mod crypto;
 pub mod db;
 pub mod error;
 pub mod graphql;
@@ -6,7 +7,7 @@ pub mod model;
 pub mod service;
 
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
-use axum::{routing::post, Router};
+use axum::{Router, routing::post};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -23,15 +24,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tracing::info!("Starting Matchify Backend");
 
     // 2. Init App Config
+    tracing::info!("Initializing App Config");
     let config = config::AppConfig::init();
+    tracing::info!("Successfully initialized App Config");
 
     // 3. Init Database
-    let _db = db::get_mongo_database(&config).await?;
+    tracing::info!("Initializing Database");
+    let client = db::connect(&config.mongo_uri).await?;
+    let db = client.database("matchify");
+    db::indexes::create_indexes(&db).await?;
+    tracing::info!("Successfully initialized Database");
 
     // 4. Build GraphQL Schema
+    tracing::info!("Building GraphQL Schema");
     let schema = graphql::build_schema();
+    tracing::info!("Successfully built GraphQL Schema");
 
     // 5. Build Axum Router
+    tracing::info!("Building Axum Router");
     let app = Router::new().route(
         "/graphql",
         post(move |req: GraphQLRequest| {
@@ -39,8 +49,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             async move { GraphQLResponse::from(schema.execute(req.into_inner()).await) }
         }),
     );
+    tracing::info!("Successfully built Axum Router");
 
     // 6. Start listening
+    tracing::info!("Starting server");
     let addr = format!("0.0.0.0:{}", config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
     tracing::info!("Server running on {}", addr);
