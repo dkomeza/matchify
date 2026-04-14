@@ -52,7 +52,27 @@ pub struct AuthUser {
     pub user_id: String,
 }
 
+pub struct OptionalAuthUser(pub Option<AuthUser>);
+
 impl<S> FromRequestParts<S> for AuthUser
+where
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, String);
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let optional_user = OptionalAuthUser::from_request_parts(parts, state).await?;
+        match optional_user.0 {
+            Some(user) => Ok(user),
+            None => Err((
+                StatusCode::UNAUTHORIZED,
+                "Missing Authorization header".to_string(),
+            )),
+        }
+    }
+}
+
+impl<S> FromRequestParts<S> for OptionalAuthUser
 where
     S: Send + Sync,
 {
@@ -67,12 +87,7 @@ where
 
         let token = match auth_header {
             Some(t) => t,
-            None => {
-                return Err((
-                    StatusCode::UNAUTHORIZED,
-                    "Missing or invalid Authorization header".to_string(),
-                ))
-            }
+            None => return Ok(OptionalAuthUser(None)),
         };
 
         let secret = if let Some(config) = parts
@@ -88,9 +103,9 @@ where
         };
 
         match verify(token, &secret) {
-            Ok(claims) => Ok(AuthUser {
+            Ok(claims) => Ok(OptionalAuthUser(Some(AuthUser {
                 user_id: claims.sub,
-            }),
+            }))),
             Err(e) => Err((StatusCode::UNAUTHORIZED, format!("Invalid token: {}", e))),
         }
     }
