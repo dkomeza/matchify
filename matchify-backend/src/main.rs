@@ -3,6 +3,7 @@ pub mod crypto;
 pub mod db;
 pub mod error;
 pub mod graphql;
+pub mod jwt;
 pub mod model;
 pub mod service;
 
@@ -35,6 +36,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     db::indexes::create_indexes(&db).await?;
     tracing::info!("Successfully initialized Database");
 
+    // 4. Init Spotify Client
+    tracing::info!("Initializing Spotify Client");
+    let spotify_client = service::spotify::SpotifyClient::new(
+        config.spotify_client_id.clone(),
+        config.spotify_client_secret.clone(),
     // 4. Build GraphQL Schema
     tracing::info!("Building GraphQL Schema");
     let schema = graphql::build_schema();
@@ -49,6 +55,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             async move { GraphQLResponse::from(schema.execute(req.into_inner()).await) }
         }),
     );
+    tracing::info!("Successfully built Axum Router");
+
+    // 5. Build GraphQL Schema
+    tracing::info!("Building GraphQL Schema");
+    let schema = graphql::build_schema(db, config.clone(), spotify_client);
+    tracing::info!("Successfully built GraphQL Schema");
+
+    // 6. Build Axum Router
+    tracing::info!("Building Axum Router");
+    let shared_config = std::sync::Arc::new(config.clone());
+    let app = Router::new()
+        .route(
+            "/graphql",
+            post(move |optional_auth: jwt::OptionalAuthUser, req: GraphQLRequest| {
+                let schema = schema.clone();
+                async move {
+                    let mut req = req.into_inner();
+                    if let Some(user) = optional_auth.0 {
+                        req = req.data(user);
+                    }
+                    GraphQLResponse::from(schema.execute(req).await)
+                }
+            }),
+        )
+        .layer(axum::extract::Extension(shared_config));
     tracing::info!("Successfully built Axum Router");
 
     // 6. Start listening
