@@ -113,6 +113,84 @@ pub async fn create(
     Err(AppError::InviteCodeConflict)
 }
 
+/// Join an existing playlist using its invite code.
+///
+/// * Looks up the playlist by `invite_code` (unique-indexed field).
+/// * If `caller_id` is already in `member_ids` the document is returned as-is
+///   (idempotent — no error, no write).
+/// * Otherwise `$addToSet` the caller, then recalculate
+///   `vote_threshold = ceil(new_member_count / 2)` **only** when the playlist
+///   is still using the default formula (i.e. `vote_threshold` equals
+///   `ceil(old_member_count / 2)`). User-supplied custom thresholds are
+///   preserved.
+///
+/// Returns `NOT_FOUND` when the invite code does not match any playlist.
+pub async fn join(db: &Database, caller_id: ObjectId, invite_code: &str) -> Result<Playlist> {
+    use mongodb::options::{FindOneAndUpdateOptions, ReturnDocument};
+
+    let collection = db.collection::<Playlist>("playlists");
+
+    // 1. Look up the playlist.
+    let playlist = collection
+        .find_one(doc! { "invite_code": invite_code })
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("No playlist with invite code '{invite_code}'")))?;
+
+    // 2. Idempotency — already a member, nothing to do.
+    if playlist.member_ids.contains(&caller_id) {
+        tracing::debug!(
+            playlist_id = %playlist.id,
+            caller_id = %caller_id,
+            "joinPlaylist: caller already a member, skipping write"
+        );
+        return Ok(playlist);
+    }
+
+    // 3. Determine whether the current threshold is the auto-computed default
+    //    so we know whether to bump it after adding the new member.
+    let old_count = playlist.member_ids.len() as i32;
+    let auto_threshold = (old_count + 1) / 2 + (old_count + 1) % 2; // ceil(n/2)
+    let has_custom_threshold = playlist.vote_threshold != auto_threshold;
+
+    let new_count = old_count + 1;
+    let new_threshold = if has_custom_threshold {
+        playlist.vote_threshold // preserve custom value
+    } else {
+        (new_count + 1) / 2 // ceil(new_count / 2) using integer arithmetic
+    };
+
+    // 4. Atomic update: add member + (conditionally) update threshold.
+    let now = mongodb::bson::DateTime::from_millis(chrono::Utc::now().timestamp_millis());
+    let updated = collection
+        .find_one_and_update(
+            doc! { "_id": playlist.id, "invite_code": invite_code },
+            doc! {
+                "$addToSet": { "member_ids": caller_id },
+                "$set": {
+                    "vote_threshold": new_threshold,
+                    "updated_at": now,
+                },
+            },
+        )
+        .with_options(
+            FindOneAndUpdateOptions::builder()
+                .return_document(ReturnDocument::After)
+                .build(),
+        )
+        .await?
+        .ok_or(AppError::Unexpected)?;
+
+    tracing::info!(
+        playlist_id = %updated.id,
+        caller_id = %caller_id,
+        new_member_count = new_count,
+        vote_threshold = new_threshold,
+        "joinPlaylist: member added"
+    );
+
+    Ok(updated)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -212,6 +290,96 @@ mod tests {
             .chars()
             .all(|c| c.is_ascii_alphanumeric()));
         assert!(playlist.spotify_playlist_id.is_none());
+
+        // Clean up
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn join_invalid_invite_code_returns_not_found() {
+        let db = build_fake_db().await;
+        let err = join(&db, ObjectId::new(), "NOTEXIST")
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, AppError::NotFound(_)),
+            "Expected NotFound error, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn join_is_idempotent() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Idempotency Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        // Join with the owner who is already a member.
+        let rejoined = join(&db, owner_id, &playlist.invite_code)
+            .await
+            .expect("idempotent join should succeed");
+
+        assert_eq!(rejoined.member_ids.len(), 1, "no duplicate member");
+        assert_eq!(rejoined.vote_threshold, 1);
+
+        // Clean up
+        db.collection::<Playlist>("playlists")
+            .delete_one(doc! { "_id": playlist.id })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
+    async fn join_adds_member_and_recalculates_threshold() {
+        let db = build_fake_db().await;
+        let owner_id = ObjectId::new();
+        let new_member_id = ObjectId::new();
+
+        let playlist = create(
+            &db,
+            owner_id,
+            CreatePlaylistInput {
+                name: "Threshold Test".to_string(),
+                description: None,
+                vote_threshold: None,
+            },
+        )
+        .await
+        .expect("create should succeed");
+
+        // 1 member → threshold = 1; after join: 2 members → ceil(2/2) = 1.
+        let after_second = join(&db, new_member_id, &playlist.invite_code)
+            .await
+            .expect("join should succeed");
+
+        assert_eq!(after_second.member_ids.len(), 2);
+        assert!(after_second.member_ids.contains(&new_member_id));
+        assert_eq!(after_second.vote_threshold, 1); // ceil(2/2)
+
+        // Join a third member → ceil(3/2) = 2.
+        let third_id = ObjectId::new();
+        let after_third = join(&db, third_id, &playlist.invite_code)
+            .await
+            .expect("join should succeed");
+
+        assert_eq!(after_third.member_ids.len(), 3);
+        assert_eq!(after_third.vote_threshold, 2); // ceil(3/2)
 
         // Clean up
         db.collection::<Playlist>("playlists")
