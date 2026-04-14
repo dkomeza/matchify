@@ -3,6 +3,7 @@ pub mod crypto;
 pub mod db;
 pub mod error;
 pub mod graphql;
+pub mod jwt;
 pub mod model;
 pub mod service;
 
@@ -42,13 +43,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // 5. Build Axum Router
     tracing::info!("Building Axum Router");
-    let app = Router::new().route(
-        "/graphql",
-        post(move |req: GraphQLRequest| {
-            let schema = schema.clone();
-            async move { GraphQLResponse::from(schema.execute(req.into_inner()).await) }
-        }),
-    );
+    let shared_config = std::sync::Arc::new(config.clone());
+    let app = Router::new()
+        .route(
+            "/graphql",
+            post(move |auth_user: jwt::AuthUser, req: GraphQLRequest| {
+                let schema = schema.clone();
+                async move {
+                    let req = req.into_inner().data(auth_user);
+                    GraphQLResponse::from(schema.execute(req).await)
+                }
+            }),
+        )
+        .layer(axum::extract::Extension(shared_config));
     tracing::info!("Successfully built Axum Router");
 
     // 6. Start listening
