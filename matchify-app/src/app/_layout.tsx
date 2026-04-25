@@ -1,8 +1,10 @@
 import { DarkTheme, ThemeProvider } from '@react-navigation/native'
 import { Stack, useRouter, useSegments } from 'expo-router'
+import { Provider } from 'urql'
 import { useEffect } from 'react'
 import { useAuthStore } from '@/store/auth-store'
 import { SplashScreen } from '@/components/splash-screen'
+import { urqlClient } from '@/lib/urql'
 
 export default function RootLayout() {
   const status = useAuthStore((s) => s.status)
@@ -19,19 +21,21 @@ export default function RootLayout() {
     } else if (status === 'authenticated' && onWelcome) {
       router.replace('/')
     }
-  }, [status, segments])
+  }, [status, segments, router])
 
   if (status === 'loading') {
     return <SplashScreen />
   }
 
   return (
-    <ThemeProvider value={DarkTheme}>
-      <Stack screenOptions={{ headerShown: false }}>
-        <Stack.Screen name="index" />
-        <Stack.Screen name="welcome" />
-        <Stack.Screen name="(tabs)" />
-      </Stack>
-    </ThemeProvider>
+    <Provider value={urqlClient}>
+      <ThemeProvider value={DarkTheme}>
+        <Stack screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="index" />
+          <Stack.Screen name="welcome" />
+          <Stack.Screen name="(tabs)" />
+        </Stack>
+      </ThemeProvider>
+    </Provider>
   )
 }
