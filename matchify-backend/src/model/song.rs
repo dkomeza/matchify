@@ -1,4 +1,4 @@
-use async_graphql::SimpleObject;
+use async_graphql::{ComplexObject, Context, SimpleObject};
 use chrono::{DateTime, Utc};
 use mongodb::bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
@@ -39,7 +39,7 @@ pub struct Song {
 }
 
 #[derive(Debug, SimpleObject)]
-#[graphql(name = "Track")]
+#[graphql(name = "Track", complex)]
 pub struct SongGql {
     pub id: String,
     pub playlist_id: String,
@@ -71,5 +71,26 @@ impl From<Song> for SongGql {
             like_count: s.like_count,
             created_at: s.created_at,
         }
+    }
+}
+
+#[ComplexObject]
+impl SongGql {
+    async fn my_vote(&self, ctx: &Context<'_>) -> async_graphql::Result<Option<crate::model::vote::VoteType>> {
+        let auth_user = ctx
+            .data_opt::<crate::jwt::AuthUser>()
+            .ok_or_else(|| async_graphql::Error::new("UNAUTHENTICATED"))?;
+
+        let caller_id = mongodb::bson::oid::ObjectId::parse_str(&auth_user.user_id)?;
+        let song_id = mongodb::bson::oid::ObjectId::parse_str(&self.id)?;
+
+        let db = ctx.data::<mongodb::Database>()?;
+        let votes_coll = db.collection::<crate::model::vote::Vote>("votes");
+
+        let vote = votes_coll
+            .find_one(mongodb::bson::doc! { "song_id": song_id, "user_id": caller_id })
+            .await?;
+
+        Ok(vote.map(|v| v.vote))
     }
 }
