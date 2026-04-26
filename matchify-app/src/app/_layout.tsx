@@ -1,3 +1,5 @@
+import '@/global.css'
+
 import { DarkTheme, ThemeProvider } from '@react-navigation/native'
 import { Stack, useRouter, useSegments } from 'expo-router'
 import { Provider } from 'urql'

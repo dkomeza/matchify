@@ -1,5 +1,3 @@
-import '@/global.css';
-
 import { Platform } from 'react-native';
 
 // Base palette — dark-only (Liquid Glass aesthetic)
@@ -54,15 +52,21 @@ export const Radius = {
 
 export const Fonts = Platform.select({
   ios: {
-    sans: 'system-ui',
-    serif: 'ui-serif',
-    rounded: 'ui-rounded',
-    mono: 'ui-monospace',
+    sans: 'System',
+    serif: 'System',
+    rounded: 'System',
+    mono: 'Menlo',
+  },
+  android: {
+    sans: 'Roboto',
+    serif: 'serif',
+    rounded: 'Roboto',
+    mono: 'monospace',
   },
   default: {
-    sans: 'normal',
+    sans: 'System',
     serif: 'serif',
-    rounded: 'normal',
+    rounded: 'System',
     mono: 'monospace',
   },
   web: {
@@ -72,6 +76,57 @@ export const Fonts = Platform.select({
     mono: 'var(--font-mono)',
   },
 });
+
+export const Typography = {
+  display: {
+    fontFamily: Fonts.sans,
+    fontSize: 56,
+    fontWeight: '700',
+    lineHeight: 60,
+  },
+  title: {
+    fontFamily: Fonts.sans,
+    fontSize: 48,
+    fontWeight: '600',
+    lineHeight: 52,
+  },
+  subtitle: {
+    fontFamily: Fonts.sans,
+    fontSize: 32,
+    fontWeight: '600',
+    lineHeight: 44,
+  },
+  default: {
+    fontFamily: Fonts.sans,
+    fontSize: 16,
+    fontWeight: '500',
+    lineHeight: 24,
+  },
+  small: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '500',
+    lineHeight: 20,
+  },
+  smallBold: {
+    fontFamily: Fonts.sans,
+    fontSize: 14,
+    fontWeight: '700',
+    lineHeight: 20,
+  },
+  micro: {
+    fontFamily: Fonts.sans,
+    fontSize: 11,
+    fontWeight: '500',
+    lineHeight: 14,
+  },
+  code: {
+    fontFamily: Fonts.mono,
+    fontSize: 12,
+    fontWeight: Platform.select({ android: '700' as const }) ?? '500',
+    lineHeight: 16,
+  },
+} as const;
 
 export const Spacing = {
   half: 2,
@@ -90,3 +145,15 @@ export const SectionGap = Spacing.five;
 
 export const BottomTabInset = Platform.select({ ios: 50, android: 80 }) ?? 0;
 export const MaxContentWidth = 800;
+
+export const Motion = {
+  spring: {
+    mass: 1,
+    damping: 18,
+    stiffness: 200,
+  },
+  transition: {
+    duration: 250,
+    easing: 'ease-out',
+  },
+} as const;
