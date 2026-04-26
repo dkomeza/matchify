@@ -1,4 +1,5 @@
 import { SplashScreen } from '@/components/splash-screen'
+import { isAuthFailure } from '@/lib/auth-errors'
 import { LOGIN_ROUTE, useAuthStore, type User } from '@/store/auth-store'
 import { Redirect, Stack, useSegments, type Href } from 'expo-router'
 import { useEffect } from 'react'
@@ -57,7 +58,7 @@ export function AuthGate() {
   }, [data, hydrateUser])
 
   useEffect(() => {
-    if (error) {
+    if (isAuthFailure(error)) {
       logout()
     }
   }, [error, logout])
@@ -77,7 +78,7 @@ export function AuthGate() {
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
-      <Stack.Screen name="(auth)" />
+      <Stack.Screen name="(auth)/login" />
       <Stack.Screen name="welcome" />
       <Stack.Screen name="(tabs)" />
     </Stack>

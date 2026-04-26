@@ -1,4 +1,6 @@
-/* eslint-disable import/first */
+/* eslint-disable @typescript-eslint/no-require-imports */
+
+process.env.EXPO_PUBLIC_API_URL = 'http://localhost:8000'
 
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn().mockResolvedValue(null),
@@ -12,8 +14,9 @@ jest.mock('expo-router', () => ({
   },
 }))
 
-import { getAuthHeaders } from '@/lib/auth-headers'
-import { useAuthStore } from '@/store/auth-store'
+const { getAuthHeaders } = require('@/lib/auth-headers')
+const { handleUnauthorized } = require('@/lib/urql')
+const { useAuthStore } = require('@/store/auth-store')
 
 const mockUser = {
   id: 'user123',
@@ -36,5 +39,22 @@ describe('urql auth headers', () => {
     expect(getAuthHeaders()).toEqual({
       Authorization: 'Bearer jwt_token',
     })
+  })
+
+  it('allows later 401s to trigger logout after the previous one finishes', async () => {
+    const logout = jest.fn()
+    useAuthStore.setState({ logout })
+
+    handleUnauthorized()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(logout).toHaveBeenCalledTimes(1)
+
+    handleUnauthorized()
+    await Promise.resolve()
+    await Promise.resolve()
+
+    expect(logout).toHaveBeenCalledTimes(2)
   })
 })

@@ -31,6 +31,7 @@ export function GlassSurface({
   glassEffectStyle = 'regular',
   colorScheme = 'dark',
   tintColor,
+  forceFallback,
   style,
   children,
   ...props
@@ -40,6 +41,7 @@ export function GlassSurface({
       intensity={BLUR_INTENSITY[glassEffectStyle]}
       tint={BLUR_TINT[colorScheme]}
       fillColor={tintColor}
+      forceFallback={forceFallback}
       style={style}
       {...props}
     >

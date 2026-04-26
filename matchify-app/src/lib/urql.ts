@@ -10,6 +10,7 @@ import {
 } from 'urql'
 import { createClient as createSSEClient, type RequestParams } from 'graphql-sse'
 
+import { isAuthFailure } from '@/lib/auth-errors'
 import { useAuthStore } from '@/store/auth-store'
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL
@@ -26,11 +27,16 @@ const getAuthHeaders = async (): Promise<Record<string, string>> => {
 
 let unauthorizedRedirect: Promise<void> | null = null
 
-const handleUnauthorized = () => {
-  unauthorizedRedirect ??= (async () => {
-    useAuthStore.getState().logout()
-    unauthorizedRedirect = null
-  })()
+export const handleUnauthorized = () => {
+  if (unauthorizedRedirect) return
+
+  unauthorizedRedirect = Promise.resolve()
+    .then(() => {
+      useAuthStore.getState().logout()
+    })
+    .finally(() => {
+      unauthorizedRedirect = null
+    })
 }
 
 const withAuthHeader = async (operation: Operation) => {
@@ -56,21 +62,10 @@ const withAuthHeader = async (operation: Operation) => {
   })
 }
 
-const isUnauthorizedResult = (error: unknown) => {
-  if (!error || typeof error !== 'object') return false
-
-  const response = 'response' in error ? error.response : undefined
-  if (response && typeof response === 'object' && 'status' in response) {
-    return response.status === 401
-  }
-
-  return false
-}
-
 export const authExchange = mapExchange({
   onOperation: withAuthHeader,
   onError(error) {
-    if (isUnauthorizedResult(error)) {
+    if (isAuthFailure(error)) {
       handleUnauthorized()
     }
   },

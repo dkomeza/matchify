@@ -19,6 +19,7 @@ export type GlassViewProps = ViewProps & {
   fillColor?: string
   border?: boolean
   contentStyle?: StyleProp<ViewStyle>
+  forceFallback?: boolean
 }
 
 const GLASS_FILL: Record<GlassTone, string> = {
@@ -35,19 +36,23 @@ export function GlassView({
   border = true,
   style,
   contentStyle,
+  forceFallback = false,
   children,
   ...props
 }: GlassViewProps) {
   const fill = fillColor ?? GLASS_FILL[tone]
 
-  if (Platform.OS === 'web') {
+  if (Platform.OS === 'web' || forceFallback) {
     return (
       <View
         style={[
           styles.base,
-          styles.webGlass,
+          Platform.OS === 'web' && styles.webGlass,
           border && styles.border,
-          { backgroundColor: fill, backdropFilter: `blur(${intensity}px)` } as ViewStyle,
+          {
+            backgroundColor: fill,
+            ...(Platform.OS === 'web' ? { backdropFilter: `blur(${intensity}px)` } : {}),
+          } as ViewStyle,
           style,
         ]}
         {...props}
