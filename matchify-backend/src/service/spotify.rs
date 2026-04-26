@@ -8,6 +8,38 @@ use mongodb::bson::doc;
 use mongodb::Database;
 use reqwest::Client;
 use std::collections::HashMap;
+use crate::model::spotify::SpotifyTrack;
+
+#[derive(serde::Deserialize)]
+struct SpotifySearchResponse {
+    tracks: SpotifySearchTracks,
+}
+
+#[derive(serde::Deserialize)]
+struct SpotifySearchTracks {
+    items: Vec<SpotifySearchItem>,
+}
+
+#[derive(serde::Deserialize)]
+struct SpotifySearchItem {
+    id: String,
+    name: String,
+    artists: Vec<SpotifySearchArtist>,
+    album: SpotifySearchAlbum,
+    preview_url: Option<String>,
+    duration_ms: i32,
+}
+
+#[derive(serde::Deserialize)]
+struct SpotifySearchArtist {
+    name: String,
+}
+
+#[derive(serde::Deserialize)]
+struct SpotifySearchAlbum {
+    name: String,
+    images: Vec<crate::model::spotify::SpotifyImage>,
+}
 
 #[derive(Clone)]
 pub struct SpotifyClient {
@@ -125,6 +157,52 @@ impl SpotifyClient {
 
         let profile = response.json::<SpotifyProfile>().await?;
         Ok(profile)
+    }
+
+    pub async fn search_tracks(
+        &self,
+        query: &str,
+        limit: u32,
+        access_token: &str,
+    ) -> Result<Vec<SpotifyTrack>> {
+        let actual_limit = limit.min(50).max(1);
+        let url = format!("{}/v1/search", self.base_url_api);
+        
+        let response = self
+            .client
+            .get(&url)
+            .query(&[("q", query), ("type", "track"), ("limit", &actual_limit.to_string())])
+            .bearer_auth(access_token)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(AppError::SpotifyAuth(format!(
+                "Failed to search tracks ({}): {}",
+                status, error_text
+            )));
+        }
+
+        let search_response = response.json::<SpotifySearchResponse>().await?;
+        
+        let tracks = search_response.tracks.items.into_iter().map(|item| {
+            let artist_str = item.artists.into_iter().map(|a| a.name).collect::<Vec<_>>().join(", ");
+            let album_art_url = item.album.images.first().map(|img| img.url.clone()).unwrap_or_default();
+            
+            SpotifyTrack {
+                spotify_track_id: item.id,
+                title: item.name,
+                artist: artist_str,
+                album: item.album.name,
+                album_art_url,
+                preview_url: item.preview_url,
+                duration_ms: item.duration_ms,
+            }
+        }).collect();
+
+        Ok(tracks)
     }
 }
 
