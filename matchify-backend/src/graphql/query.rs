@@ -20,9 +20,6 @@ impl Query {
     // User
     // -----------------------------------------------------------------------
 
-    /// Return the currently authenticated user's profile.
-    ///
-    /// Returns `UNAUTHENTICATED` when no valid JWT is present.
     async fn me(&self, ctx: &Context<'_>) -> GraphqlResult<User> {
         let auth_user = ctx
             .data_opt::<AuthUser>()
@@ -47,11 +44,6 @@ impl Query {
     // Playlist
     // -----------------------------------------------------------------------
 
-    /// Look up a single playlist by ID.
-    ///
-    /// Requires authentication. Returns `FORBIDDEN` when the caller is not a
-    /// member of the playlist, and `NOT_FOUND` when no playlist with the given
-    /// ID exists.
     async fn playlist(&self, ctx: &Context<'_>, id: String) -> Result<PlaylistGql> {
         let auth_user = ctx
             .data_opt::<AuthUser>()
@@ -69,7 +61,6 @@ impl Query {
             .await?
             .ok_or_else(|| AppError::NotFound(format!("Playlist {id} not found")))?;
 
-        // Authorization: caller must be a member.
         if !playlist.member_ids.contains(&caller_id) {
             return Err(AppError::Forbidden(
                 "You are not a member of this playlist".to_string(),
@@ -79,10 +70,6 @@ impl Query {
         Ok(PlaylistGql::from(playlist))
     }
 
-    /// Return all playlists the authenticated caller belongs to.
-    ///
-    /// Requires authentication. Returns `UNAUTHENTICATED` when no valid JWT is
-    /// present.
     async fn my_playlists(&self, ctx: &Context<'_>) -> Result<Vec<PlaylistGql>> {
         let auth_user = ctx
             .data_opt::<AuthUser>()
@@ -102,10 +89,6 @@ impl Query {
     // Spotify
     // -----------------------------------------------------------------------
 
-    /// Search for Spotify tracks using the query string.
-    ///
-    /// Requires authentication. It proxies the request to Spotify API using
-    /// the caller's access token, refreshing it if necessary.
     async fn search_tracks(
         &self,
         ctx: &Context<'_>,
