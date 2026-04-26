@@ -1,9 +1,9 @@
-use async_graphql::{ComplexObject, Context, SimpleObject};
+use async_graphql::{ComplexObject, Context, Enum, SimpleObject};
 use chrono::{DateTime, Utc};
 use mongodb::bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Enum)]
 pub enum TrackStatus {
     Pending,
     Approved,
@@ -52,6 +52,7 @@ pub struct SongGql {
     pub preview_url: Option<String>,
     pub duration_ms: i32,
     pub proposed_by: String,
+    pub status: TrackStatus,
     pub like_count: i32,
     pub created_at: DateTime<Utc>,
 }
@@ -69,6 +70,7 @@ impl From<Song> for SongGql {
             preview_url: s.preview_url,
             duration_ms: s.duration_ms,
             proposed_by: s.proposed_by.to_hex(),
+            status: s.status,
             like_count: s.like_count,
             created_at: s.created_at,
         }

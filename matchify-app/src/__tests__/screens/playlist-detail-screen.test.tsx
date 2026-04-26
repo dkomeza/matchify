@@ -106,7 +106,7 @@ describe('PlaylistDetailScreen', () => {
 
     fireEvent.press(getByText('Start Voting'))
 
-    expect(mockPush).toHaveBeenCalledWith('/(tabs)/vote?playlistId=playlist-1')
+    expect(mockPush).toHaveBeenCalledWith('/(tabs)/vote?playlistId=playlist-1&playlistName=Friday%20Room')
   })
 
   it('subscribes to approved track events for the current playlist', () => {

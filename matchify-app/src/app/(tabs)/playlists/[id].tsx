@@ -1,57 +1,70 @@
-import * as Clipboard from 'expo-clipboard'
-import * as Haptics from 'expo-haptics'
-import { router, useLocalSearchParams } from 'expo-router'
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { FlatList, Pressable, ScrollView, StyleSheet, View } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { useQuery, useSubscription } from 'urql'
+import * as Clipboard from "expo-clipboard";
+import * as Haptics from "expo-haptics";
+import { router, useLocalSearchParams } from "expo-router";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  FlatList,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useQuery, useSubscription } from "urql";
 
-import { GlassView } from '@/components/glass-view'
-import { MemberAvatar, type MemberAvatarMember } from '@/components/playlist/member-avatar'
-import { ThemedText } from '@/components/themed-text'
-import { ThemedView } from '@/components/themed-view'
-import { TrackRow, type TrackRowTrack } from '@/components/track/track-row'
-import { PrimaryButton } from '@/components/ui/primary-button'
-import { Colors, Radius, ScreenPadding, Spacing } from '@/constants/theme'
-import { PLAYLIST_DETAIL_QUERY, TRACK_APPROVED_SUBSCRIPTION } from '@/lib/graphql/playlists'
+import { GlassView } from "@/components/glass-view";
+import {
+  MemberAvatar,
+  type MemberAvatarMember,
+} from "@/components/playlist/member-avatar";
+import { ThemedText } from "@/components/themed-text";
+import { ThemedView } from "@/components/themed-view";
+import { TrackRow, type TrackRowTrack } from "@/components/track/track-row";
+import { PrimaryButton } from "@/components/ui/primary-button";
+import { Colors, Radius, ScreenPadding, Spacing } from "@/constants/theme";
+import {
+  PLAYLIST_DETAIL_QUERY,
+  TRACK_APPROVED_SUBSCRIPTION,
+} from "@/lib/graphql/playlists";
 
 type PlaylistTrack = TrackRowTrack & {
-  createdAt?: string | null
-}
+  createdAt?: string | null;
+};
 
 type PlaylistDetail = {
-  id: string
-  name: string
-  inviteCode: string
-  voteThreshold: number
-  members: MemberAvatarMember[]
-  tracks: PlaylistTrack[]
-}
+  id: string;
+  name: string;
+  inviteCode: string;
+  voteThreshold: number;
+  members: MemberAvatarMember[];
+  tracks: PlaylistTrack[];
+};
 
 type PlaylistDetailData = {
-  playlist: PlaylistDetail | null
-}
+  playlist: PlaylistDetail | null;
+};
 
 type TrackApprovedData = {
-  trackApproved?: PlaylistTrack | null
-}
+  trackApproved?: PlaylistTrack | null;
+};
 
 const byApprovalTime = (left: PlaylistTrack, right: PlaylistTrack) => {
-  const leftTime = left.createdAt ? Date.parse(left.createdAt) : 0
-  const rightTime = right.createdAt ? Date.parse(right.createdAt) : 0
+  const leftTime = left.createdAt ? Date.parse(left.createdAt) : 0;
+  const rightTime = right.createdAt ? Date.parse(right.createdAt) : 0;
 
-  return leftTime - rightTime
-}
+  return leftTime - rightTime;
+};
 
 export default function PlaylistDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>()
-  const [copied, setCopied] = useState(false)
-  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [{ data, fetching, error }, executeQuery] = useQuery<PlaylistDetailData>({
-    query: PLAYLIST_DETAIL_QUERY,
-    variables: { id },
-    pause: !id,
-  })
+  const { id } = useLocalSearchParams<{ id: string }>();
+  const [copied, setCopied] = useState(false);
+  const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [{ data, fetching, error }, executeQuery] =
+    useQuery<PlaylistDetailData>({
+      query: PLAYLIST_DETAIL_QUERY,
+      variables: { id },
+      pause: !id,
+    });
 
   useSubscription<TrackApprovedData, PlaylistTrack[], { playlistId: string }>(
     {
@@ -60,51 +73,59 @@ export default function PlaylistDetailScreen() {
       pause: true,
     },
     (tracks = [], event) => {
-      const approvedTrack = event.trackApproved
+      const approvedTrack = event.trackApproved;
 
-      if (!approvedTrack) return tracks
+      if (!approvedTrack) return tracks;
 
-      return [...tracks.filter((track) => track.id !== approvedTrack.id), approvedTrack].sort(byApprovalTime)
+      return [
+        ...tracks.filter((track) => track.id !== approvedTrack.id),
+        approvedTrack,
+      ].sort(byApprovalTime);
     },
-  )
+  );
 
-  const playlist = data?.playlist
-  const tracks = useMemo(() => [...(playlist?.tracks ?? [])].sort(byApprovalTime), [playlist?.tracks])
-  const isInitialLoading = fetching && !data
+  const playlist = data?.playlist;
+  const tracks = useMemo(
+    () => [...(playlist?.tracks ?? [])].sort(byApprovalTime),
+    [playlist?.tracks],
+  );
+  const isInitialLoading = fetching && !data;
 
   useEffect(
     () => () => {
       if (copiedTimeoutRef.current) {
-        clearTimeout(copiedTimeoutRef.current)
+        clearTimeout(copiedTimeoutRef.current);
       }
     },
     [],
-  )
+  );
 
   const copyInviteCode = async () => {
-    if (!playlist?.inviteCode) return
+    if (!playlist?.inviteCode) return;
 
-    await Clipboard.setStringAsync(playlist.inviteCode)
-    void Haptics.selectionAsync()
-    setCopied(true)
+    await Clipboard.setStringAsync(playlist.inviteCode);
+    void Haptics.selectionAsync();
+    setCopied(true);
 
     if (copiedTimeoutRef.current) {
-      clearTimeout(copiedTimeoutRef.current)
+      clearTimeout(copiedTimeoutRef.current);
     }
 
     copiedTimeoutRef.current = setTimeout(() => {
-      setCopied(false)
-      copiedTimeoutRef.current = null
-    }, 1600)
-  }
+      setCopied(false);
+      copiedTimeoutRef.current = null;
+    }, 1600);
+  };
 
   const startVoting = () => {
-    router.push(`/(tabs)/vote?playlistId=${id}`)
-  }
+    router.push(
+      `/(tabs)/vote?playlistId=${id}&playlistName=${encodeURIComponent(playlist?.name ?? "Vote")}`,
+    );
+  };
 
   const refresh = () => {
-    void executeQuery({ requestPolicy: 'network-only' })
-  }
+    void executeQuery({ requestPolicy: "network-only" });
+  };
 
   return (
     <ThemedView style={styles.container}>
@@ -119,8 +140,13 @@ export default function PlaylistDetailScreen() {
             data={tracks}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => <TrackRow track={item} />}
-            contentContainerStyle={[styles.listContent, tracks.length === 0 && styles.emptyListContent]}
-            ItemSeparatorComponent={() => <View style={styles.trackSeparator} />}
+            contentContainerStyle={[
+              styles.listContent,
+              tracks.length === 0 && styles.emptyListContent,
+            ]}
+            ItemSeparatorComponent={() => (
+              <View style={styles.trackSeparator} />
+            )}
             ListHeaderComponent={
               <PlaylistHeader
                 playlist={playlist}
@@ -135,16 +161,24 @@ export default function PlaylistDetailScreen() {
           />
         )}
 
-        <Pressable accessibilityRole="button" disabled style={styles.proposeFab}>
-          <GlassView glassEffectStyle="regular" colorScheme="dark" style={styles.proposePill}>
-            <ThemedText type="smallBold" themeColor="textSecondary">
+        <Pressable
+          accessibilityRole="button"
+          disabled
+          style={styles.proposeFab}
+        >
+          <GlassView
+            glassEffectStyle="clear"
+            colorScheme="dark"
+            style={styles.proposePill}
+          >
+            <ThemedText type="smallBold" themeColor="brand">
               Propose a Track
             </ThemedText>
           </GlassView>
         </Pressable>
       </SafeAreaView>
     </ThemedView>
-  )
+  );
 }
 
 function PlaylistHeader({
@@ -153,10 +187,10 @@ function PlaylistHeader({
   onCopyInviteCode,
   onStartVoting,
 }: {
-  playlist: PlaylistDetail
-  copied: boolean
-  onCopyInviteCode: () => void
-  onStartVoting: () => void
+  playlist: PlaylistDetail;
+  copied: boolean;
+  onCopyInviteCode: () => void;
+  onStartVoting: () => void;
 }) {
   return (
     <View style={styles.header}>
@@ -168,11 +202,22 @@ function PlaylistHeader({
           accessibilityRole="button"
           accessibilityLabel={`Copy invite code ${playlist.inviteCode}`}
           onPress={onCopyInviteCode}
-          style={({ pressed }) => [styles.invitePressable, pressed && styles.pressed]}
+          style={({ pressed }) => [
+            styles.invitePressable,
+            pressed && styles.pressed,
+          ]}
         >
-          <GlassView glassEffectStyle="clear" colorScheme="dark" style={[styles.inviteChip, copied && styles.inviteChipCopied]}>
-            <ThemedText type="micro" themeColor={copied ? 'text' : 'textSecondary'} style={styles.inviteLabel}>
-              {copied ? 'Copied' : 'Invite'}
+          <GlassView
+            glassEffectStyle="clear"
+            colorScheme="dark"
+            style={[styles.inviteChip, copied && styles.inviteChipCopied]}
+          >
+            <ThemedText
+              type="micro"
+              themeColor={copied ? "text" : "textSecondary"}
+              style={styles.inviteLabel}
+            >
+              {copied ? "Copied" : "Invite"}
             </ThemedText>
             <ThemedText type="micro" style={styles.inviteCode}>
               {playlist.inviteCode}
@@ -185,7 +230,11 @@ function PlaylistHeader({
         <ThemedText type="smallBold" themeColor="textSecondary">
           Members
         </ThemedText>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.members}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.members}
+        >
           {playlist.members.map((member) => (
             <MemberAvatar key={member.id} member={member} />
           ))}
@@ -194,11 +243,15 @@ function PlaylistHeader({
 
       <PrimaryButton onPress={onStartVoting}>Start Voting</PrimaryButton>
 
-      <ThemedText type="smallBold" themeColor="textSecondary" style={styles.tracksTitle}>
+      <ThemedText
+        type="smallBold"
+        themeColor="textSecondary"
+        style={styles.tracksTitle}
+      >
         Approved Tracks
       </ThemedText>
     </View>
-  )
+  );
 }
 
 function LoadingState() {
@@ -206,7 +259,12 @@ function LoadingState() {
     <View style={styles.loadingWrap}>
       <View style={styles.loadingHeader} />
       {[0, 1, 2].map((item) => (
-        <GlassView key={item} glassEffectStyle="regular" colorScheme="dark" style={styles.skeletonRow}>
+        <GlassView
+          key={item}
+          glassEffectStyle="regular"
+          colorScheme="dark"
+          style={styles.skeletonRow}
+        >
           <View style={styles.skeletonArt} />
           <View style={styles.skeletonText}>
             <View style={styles.skeletonTitle} />
@@ -215,7 +273,7 @@ function LoadingState() {
         </GlassView>
       ))}
     </View>
-  )
+  );
 }
 
 function ErrorState({ onRetry }: { onRetry: () => void }) {
@@ -224,27 +282,43 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
       <ThemedText type="subtitle" style={styles.centerTitle}>
         Playlist could not load
       </ThemedText>
-      <ThemedText type="small" themeColor="textSecondary" style={styles.centerCopy}>
+      <ThemedText
+        type="small"
+        themeColor="textSecondary"
+        style={styles.centerCopy}
+      >
         Check your connection and try again.
       </ThemedText>
-      <Pressable accessibilityRole="button" onPress={onRetry} style={({ pressed }) => pressed && styles.pressed}>
-        <GlassView glassEffectStyle="clear" colorScheme="dark" style={styles.retryPill}>
+      <Pressable
+        accessibilityRole="button"
+        onPress={onRetry}
+        style={({ pressed }) => pressed && styles.pressed}
+      >
+        <GlassView
+          glassEffectStyle="clear"
+          colorScheme="dark"
+          style={styles.retryPill}
+        >
           <ThemedText type="smallBold">Retry</ThemedText>
         </GlassView>
       </Pressable>
     </View>
-  )
+  );
 }
 
 function EmptyTracks() {
   return (
-    <GlassView glassEffectStyle="regular" colorScheme="dark" style={styles.emptyTracks}>
+    <GlassView
+      glassEffectStyle="regular"
+      colorScheme="dark"
+      style={styles.emptyTracks}
+    >
       <ThemedText type="smallBold">No approved tracks yet</ThemedText>
       <ThemedText type="small" themeColor="textSecondary">
         Start voting to approve the first songs for this playlist.
       </ThemedText>
     </GlassView>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -268,8 +342,8 @@ const styles = StyleSheet.create({
     gap: Spacing.four,
   },
   titleRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
     gap: Spacing.three,
   },
   title: {
@@ -287,16 +361,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.glassBorder,
     paddingHorizontal: Spacing.three,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   inviteChipCopied: {
     borderColor: Colors.like,
     backgroundColor: Colors.likeGlow,
   },
   inviteLabel: {
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
   },
   inviteCode: {
     letterSpacing: 0,
@@ -310,7 +384,7 @@ const styles = StyleSheet.create({
   },
   tracksTitle: {
     marginTop: Spacing.two,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
   },
   trackSeparator: {
     height: Spacing.three,
@@ -318,9 +392,10 @@ const styles = StyleSheet.create({
     borderBottomColor: Colors.glassBorder,
   },
   proposeFab: {
-    position: 'absolute',
-    right: ScreenPadding,
-    bottom: Spacing.four,
+    position: "absolute",
+    bottom: 96,
+    left: "50%",
+    transform: [{ translateX: "-50%" }],
     borderRadius: Radius.full,
     opacity: 0.58,
   },
@@ -330,9 +405,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.four,
     borderWidth: 1,
     borderColor: Colors.glassBorder,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   pressed: {
     opacity: 0.78,
@@ -344,7 +419,7 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
   },
   loadingHeader: {
-    width: '72%',
+    width: "72%",
     height: 48,
     borderRadius: Radius.full,
     backgroundColor: Colors.glassRaised,
@@ -356,10 +431,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.glassBorder,
     padding: Spacing.two,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.three,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   skeletonArt: {
     width: 48,
@@ -372,32 +447,32 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   skeletonTitle: {
-    width: '64%',
+    width: "64%",
     height: 18,
     borderRadius: Radius.full,
     backgroundColor: Colors.glassRaised,
   },
   skeletonMeta: {
-    width: '42%',
+    width: "42%",
     height: 12,
     borderRadius: Radius.full,
     backgroundColor: Colors.glass,
   },
   centerState: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: ScreenPadding,
     paddingBottom: 96,
     gap: Spacing.three,
   },
   centerTitle: {
-    textAlign: 'center',
+    textAlign: "center",
     fontSize: 28,
     lineHeight: 34,
   },
   centerCopy: {
-    textAlign: 'center',
+    textAlign: "center",
     maxWidth: 280,
   },
   retryPill: {
@@ -406,9 +481,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.glassBorder,
     paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   emptyTracks: {
     borderRadius: Radius.md,
@@ -416,6 +491,6 @@ const styles = StyleSheet.create({
     borderColor: Colors.glassBorder,
     padding: Spacing.four,
     gap: Spacing.two,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
-})
+});

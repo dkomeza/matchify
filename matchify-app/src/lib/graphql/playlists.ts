@@ -17,7 +17,7 @@ export const MY_PLAYLISTS_QUERY = gql`
 `
 
 export const PLAYLIST_DETAIL_QUERY = gql`
-  query PlaylistDetail($id: ID!) {
+  query PlaylistDetail($id: String!) {
     playlist(id: $id) {
       id
       name
