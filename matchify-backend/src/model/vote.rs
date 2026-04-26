@@ -2,7 +2,9 @@ use chrono::{DateTime, Utc};
 use mongodb::bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Serialize, Deserialize, PartialEq, Eq)]
+use async_graphql::Enum;
+
+#[derive(Debug, Serialize, Deserialize, PartialEq, Eq, Clone, Copy, Enum)]
 pub enum VoteType {
     Like,
     Skip,

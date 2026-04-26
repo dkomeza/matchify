@@ -4,6 +4,7 @@ use crate::model::song::{Song, TrackStatus};
 use crate::service::spotify::SpotifyClient;
 use chrono::Utc;
 use mongodb::{bson::doc, bson::oid::ObjectId, Database};
+use futures::StreamExt;
 
 fn is_duplicate_key_error(err: &mongodb::error::Error) -> bool {
     use mongodb::error::ErrorKind;
@@ -65,4 +66,61 @@ pub async fn add_initial_tracks(
     }
 
     Ok(inserted_songs)
+}
+
+pub async fn next_unvoted(
+    db: &Database,
+    playlist_id: ObjectId,
+    user_id: ObjectId,
+) -> Result<Option<Song>> {
+    let songs_coll = db.collection::<mongodb::bson::Document>("songs");
+
+    let pipeline = vec![
+        doc! {
+            "$match": {
+                "playlist_id": playlist_id,
+                "status": "Pending"
+            }
+        },
+        doc! {
+            "$lookup": {
+                "from": "votes",
+                "let": { "song_id": "$_id" },
+                "pipeline": [
+                    {
+                        "$match": {
+                            "$expr": {
+                                "$and": [
+                                    { "$eq": ["$song_id", "$$song_id"] },
+                                    { "$eq": ["$user_id", user_id] }
+                                ]
+                            }
+                        }
+                    }
+                ],
+                "as": "user_votes"
+            }
+        },
+        doc! {
+            "$match": {
+                "user_votes": { "$size": 0 }
+            }
+        },
+        doc! {
+            "$sort": { "created_at": 1 }
+        },
+        doc! {
+            "$limit": 1
+        }
+    ];
+
+    let mut cursor = songs_coll.aggregate(pipeline).await.map_err(AppError::Database)?;
+    
+    if let Some(result) = cursor.next().await {
+        let doc = result.map_err(AppError::Database)?;
+        let song: Song = mongodb::bson::from_document(doc).map_err(|_| AppError::Unexpected)?;
+        return Ok(Some(song));
+    }
+
+    Ok(None)
 }
