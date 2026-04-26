@@ -9,12 +9,9 @@ import {
   type SubscriptionOperation,
 } from 'urql'
 import { createClient as createSSEClient, type RequestParams } from 'graphql-sse'
-import * as SecureStore from 'expo-secure-store'
-import { router } from 'expo-router'
 
 import { useAuthStore } from '@/store/auth-store'
 
-const JWT_KEY = 'jwt'
 const API_URL = process.env.EXPO_PUBLIC_API_URL
 
 if (!API_URL) {
@@ -22,7 +19,7 @@ if (!API_URL) {
 }
 
 const getAuthHeaders = async (): Promise<Record<string, string>> => {
-  const token = await SecureStore.getItemAsync(JWT_KEY)
+  const token = useAuthStore.getState().token
 
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
@@ -31,9 +28,7 @@ let unauthorizedRedirect: Promise<void> | null = null
 
 const handleUnauthorized = () => {
   unauthorizedRedirect ??= (async () => {
-    await SecureStore.deleteItemAsync(JWT_KEY)
     useAuthStore.getState().logout()
-    router.replace('/welcome')
     unauthorizedRedirect = null
   })()
 }

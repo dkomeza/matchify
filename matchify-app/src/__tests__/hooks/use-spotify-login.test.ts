@@ -39,11 +39,9 @@ beforeEach(() => {
   mockPromptAsync.mockReset()
   mockExecuteLogin.mockReset()
   useAuthStore.setState({
-    status: 'unauthenticated',
-    accessToken: null,
-    refreshToken: null,
-    expiresAt: null,
+    token: null,
     user: null,
+    isLoading: false,
   })
 })
 
@@ -81,9 +79,7 @@ describe('useSpotifyLogin', () => {
 
     expect(useAuthStore.getState()).toEqual(
       expect.objectContaining({
-        status: 'authenticated',
-        accessToken: 'jwt-token',
-        refreshToken: '',
+        token: 'jwt-token',
         user: {
           id: 'user-id',
           displayName: 'Daria',

@@ -23,19 +23,15 @@ const mockUser = {
 
 beforeEach(() => {
   useAuthStore.setState({
-    status: 'unauthenticated',
-    accessToken: null,
-    refreshToken: null,
-    expiresAt: null,
+    token: null,
     user: null,
+    isLoading: false,
   })
 })
 
 describe('urql auth headers', () => {
   it('injects the current persisted auth token as a bearer token', () => {
-    useAuthStore
-      .getState()
-      .setSession('jwt_token', 'refresh_token', Date.now() + 3600000, mockUser)
+    useAuthStore.getState().login('jwt_token', mockUser)
 
     expect(getAuthHeaders()).toEqual({
       Authorization: 'Bearer jwt_token',

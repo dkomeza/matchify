@@ -1,3 +1,5 @@
+/* eslint-disable import/first */
+
 jest.mock('expo-secure-store', () => ({
   getItemAsync: jest.fn().mockResolvedValue(null),
   setItemAsync: jest.fn().mockResolvedValue(undefined),
@@ -5,7 +7,8 @@ jest.mock('expo-secure-store', () => ({
 }))
 
 import { act } from '@testing-library/react-native'
-import { useAuthStore } from '../../store/auth-store'
+import * as SecureStore from 'expo-secure-store'
+import { JWT_KEY, useAuthStore } from '../../store/auth-store'
 
 const mockUser = {
   id: 'user123',
@@ -14,41 +17,54 @@ const mockUser = {
 }
 
 beforeEach(() => {
+  jest.clearAllMocks()
   useAuthStore.setState({
-    status: 'unauthenticated',
-    accessToken: null,
-    refreshToken: null,
-    expiresAt: null,
+    token: null,
     user: null,
+    isLoading: false,
   })
 })
 
 describe('useAuthStore', () => {
-  it('setSession sets authenticated status and stores all session fields', () => {
-    const expiresAt = Date.now() + 3600000
+  it('login stores the jwt and sets authenticated user state', () => {
     act(() => {
-      useAuthStore.getState().setSession('tok_access', 'tok_refresh', expiresAt, mockUser)
+      useAuthStore.getState().login('jwt-token', mockUser)
     })
+
     const s = useAuthStore.getState()
-    expect(s.status).toBe('authenticated')
-    expect(s.accessToken).toBe('tok_access')
-    expect(s.refreshToken).toBe('tok_refresh')
-    expect(s.expiresAt).toBe(expiresAt)
+    expect(SecureStore.setItemAsync).toHaveBeenCalledWith(JWT_KEY, 'jwt-token')
+    expect(s.token).toBe('jwt-token')
     expect(s.user).toEqual(mockUser)
+    expect(s.isLoading).toBe(false)
   })
 
-  it('logout clears all session fields and sets unauthenticated status', () => {
-    act(() => {
-      useAuthStore.getState().setSession('tok_access', 'tok_refresh', Date.now() + 3600000, mockUser)
+  it('initialize reads an existing jwt from SecureStore', async () => {
+    jest.mocked(SecureStore.getItemAsync).mockResolvedValueOnce('persisted-jwt')
+
+    await act(async () => {
+      await useAuthStore.getState().initialize()
     })
+
+    const s = useAuthStore.getState()
+    expect(SecureStore.getItemAsync).toHaveBeenCalledWith(JWT_KEY)
+    expect(s.token).toBe('persisted-jwt')
+    expect(s.user).toBeNull()
+    expect(s.isLoading).toBe(false)
+  })
+
+  it('logout clears SecureStore and resets auth state', () => {
+    act(() => {
+      useAuthStore.getState().login('jwt-token', mockUser)
+    })
+
     act(() => {
       useAuthStore.getState().logout()
     })
+
     const s = useAuthStore.getState()
-    expect(s.status).toBe('unauthenticated')
-    expect(s.accessToken).toBeNull()
-    expect(s.refreshToken).toBeNull()
-    expect(s.expiresAt).toBeNull()
+    expect(SecureStore.deleteItemAsync).toHaveBeenCalledWith(JWT_KEY)
+    expect(s.token).toBeNull()
     expect(s.user).toBeNull()
+    expect(s.isLoading).toBe(false)
   })
 })

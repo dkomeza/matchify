@@ -2,7 +2,7 @@ import { ThemedText } from "@/components/themed-text";
 import { useAuthStore } from "@/store/auth-store";
 import { Image } from "expo-image";
 import React from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 function Home() {
