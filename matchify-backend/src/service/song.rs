@@ -5,7 +5,6 @@ use crate::service::spotify::SpotifyClient;
 use chrono::Utc;
 use mongodb::{bson::doc, bson::oid::ObjectId, Database};
 
-/// Returns `true` if a MongoDB write error contains a duplicate-key (E11000) code.
 fn is_duplicate_key_error(err: &mongodb::error::Error) -> bool {
     use mongodb::error::ErrorKind;
     match err.kind.as_ref() {
@@ -22,7 +21,6 @@ pub async fn add_initial_tracks(
     spotify_client: &SpotifyClient,
     access_token: &str,
 ) -> Result<Vec<Song>> {
-    // 1. Verify owner
     let playlists = db.collection::<Playlist>("playlists");
     let playlist = playlists
         .find_one(doc! { "_id": playlist_id })
@@ -35,7 +33,6 @@ pub async fn add_initial_tracks(
         ));
     }
 
-    // 2. Fetch tracks
     let spotify_tracks = spotify_client.get_tracks(spotify_track_ids, access_token).await?;
 
     let mut inserted_songs = Vec::new();
@@ -62,9 +59,7 @@ pub async fn add_initial_tracks(
             Ok(_) => {
                 inserted_songs.push(song);
             }
-            Err(e) if is_duplicate_key_error(&e) => {
-                // Ignore silently
-            }
+            Err(e) if is_duplicate_key_error(&e) => {}
             Err(e) => return Err(AppError::Database(e)),
         }
     }

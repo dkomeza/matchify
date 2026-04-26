@@ -31,20 +31,15 @@ pub struct AuthPayload {
 
 #[derive(InputObject)]
 pub struct CreatePlaylistInput {
-    /// Required. 1–100 characters.
     pub name: String,
     pub description: Option<String>,
-    /// Minimum votes required to add a song. Defaults to 1 (solo owner).
     pub vote_threshold: Option<i32>,
 }
 
 #[derive(InputObject)]
 pub struct UpdatePlaylistInput {
-    /// New name (1–100 characters). Omit to leave unchanged.
     pub name: Option<String>,
-    /// New description. Omit to leave unchanged.
     pub description: Option<String>,
-    /// New vote threshold (≥ 1, ≤ member count). Omit to leave unchanged.
     pub vote_threshold: Option<i32>,
 }
 
@@ -131,16 +126,11 @@ impl Mutation {
     // Playlist management
     // -----------------------------------------------------------------------
 
-    /// Create a new collaborative playlist.
-    ///
-    /// Requires a valid JWT in the `Authorization: Bearer <token>` header.
-    /// Returns `UNAUTHENTICATED` if the caller is not logged in.
     async fn create_playlist(
         &self,
         ctx: &Context<'_>,
         input: CreatePlaylistInput,
     ) -> Result<PlaylistGql> {
-        // Auth guard
         let auth_user = ctx
             .data_opt::<AuthUser>()
             .ok_or_else(|| AppError::Validation("UNAUTHENTICATED".to_string()))
@@ -167,17 +157,11 @@ impl Mutation {
         Ok(PlaylistGql::from(playlist))
     }
 
-    /// Join an existing playlist using its invite code.
-    ///
-    /// Requires a valid JWT in the `Authorization: Bearer <token>` header.
-    /// Returns `NOT_FOUND` when the invite code is invalid, and is idempotent
-    /// if the caller is already a member.
     async fn join_playlist(
         &self,
         ctx: &Context<'_>,
         invite_code: String,
     ) -> Result<PlaylistGql> {
-        // Auth guard
         let auth_user = ctx
             .data_opt::<AuthUser>()
             .ok_or_else(|| {
@@ -194,10 +178,6 @@ impl Mutation {
         Ok(PlaylistGql::from(playlist))
     }
 
-    /// Update a playlist's metadata (owner only).
-    ///
-    /// Returns `FORBIDDEN` when the caller is not the owner.
-    /// Returns `BAD_USER_INPUT` on validation failures.
     async fn update_playlist(
         &self,
         ctx: &Context<'_>,
@@ -231,10 +211,6 @@ impl Mutation {
         Ok(PlaylistGql::from(playlist))
     }
 
-    /// Remove the authenticated caller from the playlist.
-    ///
-    /// Returns `BAD_USER_INPUT` when the caller is the owner (owners cannot
-    /// leave — they must delete the playlist instead).
     async fn leave_playlist(
         &self,
         ctx: &Context<'_>,
@@ -255,7 +231,6 @@ impl Mutation {
         playlist_service::leave(db, caller_id, pid).await
     }
 
-    /// Allows the playlist owner to bulk-seed the proposal queue with tracks from Spotify.
     async fn add_initial_tracks(
         &self,
         ctx: &Context<'_>,
