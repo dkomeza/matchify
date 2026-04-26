@@ -1,29 +1,14 @@
 import { router } from 'expo-router'
 import { FlatList, Pressable, StyleSheet, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { gql, useQuery } from 'urql'
+import { useQuery } from 'urql'
 
 import { GlassView } from '@/components/glass-view'
 import { PlaylistCard, type PlaylistCardPlaylist } from '@/components/playlist/playlist-card'
 import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
 import { Colors, Radius, ScreenPadding, Spacing } from '@/constants/theme'
-
-const MY_PLAYLISTS_QUERY = gql`
-  query MyPlaylists {
-    myPlaylists {
-      id
-      name
-      description
-      members {
-        id
-        displayName
-        profileImageUrl
-      }
-      voteThreshold
-    }
-  }
-`
+import { MY_PLAYLISTS_QUERY } from '@/lib/graphql/playlists'
 
 type MyPlaylistsData = {
   myPlaylists: PlaylistCardPlaylist[]
@@ -45,6 +30,14 @@ export default function PlaylistsScreen() {
     router.push(`/playlists/${id}`)
   }
 
+  const openCreate = () => {
+    router.push('/playlists/create')
+  }
+
+  const openJoin = () => {
+    router.push('/playlists/join')
+  }
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
@@ -52,7 +45,7 @@ export default function PlaylistsScreen() {
           <ThemedText type="title" style={styles.title}>
             Playlists
           </ThemedText>
-          <Pressable accessibilityRole="button" style={({ pressed }) => [styles.joinButton, pressed && styles.pressed]}>
+          <Pressable accessibilityRole="button" onPress={openJoin} style={({ pressed }) => [styles.joinButton, pressed && styles.pressed]}>
             <GlassView glassEffectStyle="clear" colorScheme="dark" style={styles.joinPill}>
               <ThemedText type="smallBold">Join</ThemedText>
             </GlassView>
@@ -77,7 +70,7 @@ export default function PlaylistsScreen() {
           />
         )}
 
-        <Pressable accessibilityRole="button" style={({ pressed }) => [styles.fab, pressed && styles.pressed]}>
+        <Pressable accessibilityRole="button" onPress={openCreate} style={({ pressed }) => [styles.fab, pressed && styles.pressed]}>
           <ThemedText type="title" style={styles.fabIcon}>
             +
           </ThemedText>
@@ -133,7 +126,7 @@ function EmptyState() {
       <ThemedText type="small" themeColor="textSecondary" style={styles.centerCopy}>
         Join an invite to start voting with your group.
       </ThemedText>
-      <Pressable accessibilityRole="button" style={({ pressed }) => pressed && styles.pressed}>
+      <Pressable accessibilityRole="button" onPress={() => router.push('/playlists/join')} style={({ pressed }) => pressed && styles.pressed}>
         <GlassView glassEffectStyle="clear" colorScheme="dark" style={styles.ctaPill}>
           <ThemedText type="smallBold">Join with invite</ThemedText>
         </GlassView>
