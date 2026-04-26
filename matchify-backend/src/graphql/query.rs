@@ -97,4 +97,51 @@ impl Query {
 
         Ok(playlists.into_iter().map(PlaylistGql::from).collect())
     }
+
+    // -----------------------------------------------------------------------
+    // Spotify
+    // -----------------------------------------------------------------------
+
+    /// Search for Spotify tracks using the query string.
+    ///
+    /// Requires authentication. It proxies the request to Spotify API using
+    /// the caller's access token, refreshing it if necessary.
+    async fn search_tracks(
+        &self,
+        ctx: &Context<'_>,
+        query: String,
+        limit: Option<u32>,
+    ) -> Result<Vec<crate::model::spotify::SpotifyTrack>> {
+        let auth_user = ctx
+            .data_opt::<AuthUser>()
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let object_id = mongodb::bson::oid::ObjectId::from_str(&auth_user.user_id)
+            .map_err(|_| AppError::Unexpected)?;
+
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+        
+        let collection = db.collection::<User>("users");
+        let user = collection
+            .find_one(doc! { "_id": object_id })
+            .await
+            .map_err(AppError::Database)?
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let spotify_client = ctx
+            .data::<crate::service::spotify::SpotifyClient>()
+            .map_err(|_| AppError::Unexpected)?;
+            
+        let config = ctx
+            .data::<crate::config::AppConfig>()
+            .map_err(|_| AppError::Unexpected)?;
+
+        let access_token = crate::service::spotify::get_valid_access_token(&user, spotify_client, db, config).await?;
+
+        let actual_limit = limit.unwrap_or(20);
+        let tracks = spotify_client.search_tracks(&query, actual_limit, &access_token).await?;
+
+        Ok(tracks)
+    }
+
 }
