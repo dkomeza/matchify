@@ -204,7 +204,65 @@ impl SpotifyClient {
 
         Ok(tracks)
     }
+
+    pub async fn get_tracks(
+        &self,
+        track_ids: &[String],
+        access_token: &str,
+    ) -> Result<Vec<SpotifyTrack>> {
+        if track_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let ids_str = track_ids.iter().take(50).cloned().collect::<Vec<_>>().join(",");
+        let url = format!("{}/v1/tracks", self.base_url_api);
+        
+        let response = self
+            .client
+            .get(&url)
+            .query(&[("ids", &ids_str)])
+            .bearer_auth(access_token)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(AppError::SpotifyAuth(format!(
+                "Failed to fetch tracks ({}): {}",
+                status, error_text
+            )));
+        }
+
+        #[derive(serde::Deserialize)]
+        struct SpotifyTracksResp {
+            tracks: Vec<Option<crate::service::spotify::SpotifySearchItem>>,
+        }
+
+        let body = response.json::<SpotifyTracksResp>().await?;
+        
+        let mut tracks = Vec::new();
+        for item_opt in body.tracks {
+            if let Some(item) = item_opt {
+                let artist_str = item.artists.into_iter().map(|a| a.name).collect::<Vec<_>>().join(", ");
+                let album_art_url = item.album.images.first().map(|img| img.url.clone()).unwrap_or_default();
+                
+                tracks.push(SpotifyTrack {
+                    spotify_track_id: item.id,
+                    title: item.name,
+                    artist: artist_str,
+                    album: item.album.name,
+                    album_art_url,
+                    preview_url: item.preview_url,
+                    duration_ms: item.duration_ms,
+                });
+            }
+        }
+
+        Ok(tracks)
+    }
 }
+
 
 pub async fn get_valid_access_token(
     user: &User,
