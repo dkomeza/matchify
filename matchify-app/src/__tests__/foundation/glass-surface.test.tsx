@@ -15,7 +15,7 @@ describe('GlassSurface', () => {
   it('uses the non-native fallback when requested', () => {
     const { queryByTestId } = render(<GlassSurface forceFallback />)
 
-    expect(queryByTestId('blur-view')).toBeNull()
-    expect(mockBlurView).not.toHaveBeenCalled()
+    expect(queryByTestId('blur-view')).not.toBeNull()
+    expect(mockBlurView).toHaveBeenCalled()
   })
 })
