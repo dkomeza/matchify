@@ -254,4 +254,53 @@ impl Mutation {
 
         playlist_service::leave(db, caller_id, pid).await
     }
+
+    /// Allows the playlist owner to bulk-seed the proposal queue with tracks from Spotify.
+    async fn add_initial_tracks(
+        &self,
+        ctx: &Context<'_>,
+        playlist_id: String,
+        spotify_track_ids: Vec<String>,
+    ) -> Result<Vec<crate::model::song::SongGql>> {
+        let auth_user = ctx
+            .data_opt::<AuthUser>()
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let caller_id = ObjectId::parse_str(&auth_user.user_id)
+            .map_err(|_| AppError::Unexpected)?;
+
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+        let collection = db.collection::<User>("users");
+        
+        let user = collection
+            .find_one(doc! { "_id": caller_id })
+            .await
+            .map_err(AppError::Database)?
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let spotify_client = ctx
+            .data::<crate::service::spotify::SpotifyClient>()
+            .map_err(|_| AppError::Unexpected)?;
+            
+        let config = ctx
+            .data::<crate::config::AppConfig>()
+            .map_err(|_| AppError::Unexpected)?;
+
+        let access_token = crate::service::spotify::get_valid_access_token(&user, spotify_client, db, config).await?;
+
+        let pid = ObjectId::parse_str(&playlist_id)
+            .map_err(|_| AppError::Validation("Invalid playlist ID format".to_string()))?;
+
+        let songs = crate::service::song::add_initial_tracks(
+            db,
+            pid,
+            caller_id,
+            &spotify_track_ids,
+            spotify_client,
+            &access_token,
+        )
+        .await?;
+
+        Ok(songs.into_iter().map(crate::model::song::SongGql::from).collect())
+    }
 }
