@@ -3,8 +3,9 @@ use crate::model::playlist::Playlist;
 use crate::model::song::{Song, TrackStatus};
 use crate::service::spotify::SpotifyClient;
 use chrono::Utc;
-use mongodb::{bson::doc, bson::oid::ObjectId, Database};
+use mongodb::{bson::doc, bson::oid::ObjectId, Database, Client, options::TransactionOptions, error::TRANSIENT_TRANSACTION_ERROR};
 use futures::StreamExt;
+use crate::model::vote::{Vote, VoteType};
 
 fn is_duplicate_key_error(err: &mongodb::error::Error) -> bool {
     use mongodb::error::ErrorKind;
@@ -123,4 +124,135 @@ pub async fn next_unvoted(
     }
 
     Ok(None)
+}
+
+pub async fn vote_on_track(
+    client: &Client,
+    db: &Database,
+    track_id: ObjectId,
+    user_id: ObjectId,
+    vote_type: VoteType,
+) -> Result<Song> {
+    let songs_coll = db.collection::<Song>("songs");
+    let votes_coll = db.collection::<Vote>("votes");
+    let playlists_coll = db.collection::<Playlist>("playlists");
+
+    let song = songs_coll
+        .find_one(doc! { "_id": track_id })
+        .await?
+        .ok_or_else(|| AppError::NotFound("Track not found".to_string()))?;
+
+    let playlist = playlists_coll
+        .find_one(doc! { "_id": song.playlist_id })
+        .await?
+        .ok_or_else(|| AppError::NotFound("Playlist not found".to_string()))?;
+
+    if !playlist.member_ids.contains(&user_id) {
+        return Err(AppError::Forbidden("Not a member of this playlist".to_string()));
+    }
+
+    let mut session = client.start_session().await.map_err(AppError::Database)?;
+    let options = TransactionOptions::builder().build();
+
+    let mut retries = 3;
+    loop {
+        session.start_transaction().with_options(options.clone()).await.map_err(AppError::Database)?;
+
+        let vote = Vote {
+            id: ObjectId::new(),
+            song_id: track_id,
+            playlist_id: song.playlist_id,
+            user_id,
+            vote: vote_type,
+            created_at: Utc::now(),
+        };
+
+        match votes_coll.insert_one(&vote).session(&mut session).await {
+            Ok(_) => {}
+            Err(e) if is_duplicate_key_error(&e) => {
+                let _ = session.abort_transaction().await;
+                return Err(AppError::Validation("You have already voted on this track".to_string()));
+            }
+            Err(e) => {
+                let _ = session.abort_transaction().await;
+                if e.contains_label(TRANSIENT_TRANSACTION_ERROR) && retries > 0 {
+                    retries -= 1;
+                    continue;
+                }
+                return Err(AppError::Database(e));
+            }
+        }
+
+        let mut updated_song = song.clone();
+
+        if vote_type == VoteType::Like {
+            let update_result = songs_coll
+                .find_one_and_update(
+                    doc! { "_id": track_id },
+                    doc! { "$inc": { "like_count": 1 } },
+                )
+                .return_document(mongodb::options::ReturnDocument::After)
+                .session(&mut session)
+                .await;
+
+            let after_song = match update_result {
+                Ok(Some(s)) => s,
+                Ok(None) => {
+                    let _ = session.abort_transaction().await;
+                    return Err(AppError::NotFound("Track not found during update".to_string()));
+                }
+                Err(e) => {
+                    let _ = session.abort_transaction().await;
+                    if e.contains_label(TRANSIENT_TRANSACTION_ERROR) && retries > 0 {
+                        retries -= 1;
+                        continue;
+                    }
+                    return Err(AppError::Database(e));
+                }
+            };
+
+            updated_song = after_song;
+
+            let threshold = playlist.vote_threshold;
+            if updated_song.like_count >= threshold {
+                let status_update = songs_coll
+                    .update_one(
+                        doc! { "_id": track_id, "status": "Pending" },
+                        doc! { "$set": { "status": "Approved" } },
+                    )
+                    .session(&mut session)
+                    .await;
+
+                match status_update {
+                    Ok(res) => {
+                        if res.modified_count > 0 {
+                            updated_song.status = TrackStatus::Approved;
+                            tracing::info!("Track {} approved!", track_id);
+                        }
+                    }
+                    Err(e) => {
+                        let _ = session.abort_transaction().await;
+                        if e.contains_label(TRANSIENT_TRANSACTION_ERROR) && retries > 0 {
+                            retries -= 1;
+                            continue;
+                        }
+                        return Err(AppError::Database(e));
+                    }
+                }
+            }
+        } else {
+            // For SKIP, just return the song since we didn't update it
+        }
+
+        match session.commit_transaction().await {
+            Ok(_) => return Ok(updated_song),
+            Err(e) => {
+                if e.contains_label(TRANSIENT_TRANSACTION_ERROR) && retries > 0 {
+                    retries -= 1;
+                    continue;
+                }
+                return Err(AppError::Database(e));
+            }
+        }
+    }
 }

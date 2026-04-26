@@ -278,4 +278,28 @@ impl Mutation {
 
         Ok(songs.into_iter().map(crate::model::song::SongGql::from).collect())
     }
+
+    async fn vote_on_track(
+        &self,
+        ctx: &Context<'_>,
+        track_id: async_graphql::ID,
+        vote: crate::model::vote::VoteType,
+    ) -> Result<crate::model::song::SongGql> {
+        let auth_user = ctx
+            .data_opt::<AuthUser>()
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let caller_id = ObjectId::parse_str(&auth_user.user_id)
+            .map_err(|_| AppError::Unexpected)?;
+
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+        let client = db.client();
+        
+        let t_id = ObjectId::parse_str(track_id.as_str())
+            .map_err(|_| AppError::Validation("Invalid track ID format".to_string()))?;
+
+        let song = crate::service::song::vote_on_track(client, db, t_id, caller_id, vote).await?;
+
+        Ok(crate::model::song::SongGql::from(song))
+    }
 }
