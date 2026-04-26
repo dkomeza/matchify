@@ -39,14 +39,12 @@ export function AuthGate() {
 
   const [{ data, error }] = useQuery<MeData>({
     query: ME_QUERY,
-    pause: !token,
+    pause: !token || !!user,
   });
 
-  console.log(data, error, token);
-
   useEffect(() => {
-    void initialize();
-  }, [initialize]);
+    if (!token) void initialize();
+  }, [token, initialize]);
 
   useEffect(() => {
     if (data?.me) {
@@ -59,6 +57,10 @@ export function AuthGate() {
       logout();
     }
   }, [error, logout]);
+
+  useEffect(() => {
+    console.log(user);
+  }, [user]);
 
   const isResolvingAuth = isLoading || (token && !user);
 

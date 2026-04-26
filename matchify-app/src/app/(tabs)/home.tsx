@@ -17,10 +17,12 @@ function Home() {
     <View style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
       <ThemedText className="text-2xl font-bold">
         Welcome back, {user.displayName}!
-        <Image
-          source={user.imageUrl!}
-          style={{ width: 40, height: 40, borderRadius: 20 }}
-        />
+        {user.imageUrl && (
+          <Image
+            source={user.imageUrl}
+            style={{ width: 40, height: 40, borderRadius: 20, display: "flex" }}
+          />
+        )}
       </ThemedText>
     </View>
   );
