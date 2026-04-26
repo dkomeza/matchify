@@ -19,7 +19,7 @@ if (!API_URL) {
   throw new Error('EXPO_PUBLIC_API_URL is not set in .env.local')
 }
 
-const getAuthHeaders = async (): Promise<Record<string, string>> => {
+const getAuthHeaders = (): Record<string, string> => {
   const token = useAuthStore.getState().token
 
   return token ? { Authorization: `Bearer ${token}` } : {}
@@ -39,13 +39,13 @@ export const handleUnauthorized = () => {
     })
 }
 
-const withAuthHeader = async (operation: Operation) => {
+const withAuthHeader = (operation: Operation) => {
   const fetchOptions =
     typeof operation.context.fetchOptions === 'function'
       ? operation.context.fetchOptions()
       : operation.context.fetchOptions ?? {}
   const headers = new Headers(fetchOptions.headers)
-  const authHeaders = await getAuthHeaders()
+  const authHeaders = getAuthHeaders()
 
   if (authHeaders.Authorization) {
     headers.set('Authorization', authHeaders.Authorization)

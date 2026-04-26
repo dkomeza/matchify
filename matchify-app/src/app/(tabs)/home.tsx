@@ -6,8 +6,12 @@ import { View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 function Home() {
-  const user = useAuthStore((s) => s.user)!;
+  const user = useAuthStore((s) => s.user);
   const insets = useSafeAreaInsets();
+
+  if (!user) {
+    return null;
+  }
 
   return (
     <View style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}>
