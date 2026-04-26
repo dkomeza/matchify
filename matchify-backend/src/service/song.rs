@@ -256,3 +256,59 @@ pub async fn vote_on_track(
         }
     }
 }
+
+pub async fn propose_track(
+    db: &Database,
+    playlist_id: ObjectId,
+    caller_id: ObjectId,
+    spotify_track_id: String,
+    spotify_client: &SpotifyClient,
+    access_token: &str,
+) -> Result<Song> {
+    let playlists = db.collection::<Playlist>("playlists");
+    let playlist = playlists
+        .find_one(doc! { "_id": playlist_id })
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Playlist {} not found", playlist_id)))?;
+
+    if !playlist.member_ids.contains(&caller_id) {
+        return Err(AppError::Forbidden(
+            "Only playlist members can propose tracks".to_string(),
+        ));
+    }
+
+    let spotify_tracks = spotify_client.get_tracks(&[spotify_track_id.clone()], access_token).await?;
+    let track = spotify_tracks.into_iter().next().ok_or_else(|| {
+        AppError::NotFound(format!("Spotify track {} not found", spotify_track_id))
+    })?;
+
+    let songs_coll = db.collection::<Song>("songs");
+
+    let song = Song {
+        id: ObjectId::new(),
+        playlist_id,
+        spotify_track_id: track.spotify_track_id,
+        title: track.title,
+        artist: track.artist,
+        album: track.album,
+        album_art_url: track.album_art_url,
+        preview_url: track.preview_url,
+        duration_ms: track.duration_ms,
+        proposed_by: caller_id,
+        status: TrackStatus::Pending,
+        like_count: 0,
+        created_at: Utc::now(),
+    };
+
+    match songs_coll.insert_one(&song).await {
+        Ok(_) => {
+            // Publish newProposal SSE event
+            tracing::info!("Track {} proposed!", song.id);
+            Ok(song)
+        }
+        Err(e) if is_duplicate_key_error(&e) => {
+            Err(AppError::Validation("Track already proposed in this playlist".to_string()))
+        }
+        Err(e) => Err(AppError::Database(e)),
+    }
+}
