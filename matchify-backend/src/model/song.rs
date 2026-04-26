@@ -10,7 +10,6 @@ pub enum TrackStatus {
     Skipped,
 }
 
-/// Serialize TrackStatus as a lowercase string for MongoDB queries.
 impl std::fmt::Display for TrackStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -35,12 +34,12 @@ pub struct Song {
     pub duration_ms: i32,
     pub proposed_by: ObjectId,
     pub status: TrackStatus,
-    pub like_count: i32, // denormalized
+    pub like_count: i32,
     pub created_at: DateTime<Utc>,
 }
 
-/// GraphQL-facing representation of a song/track.
 #[derive(Debug, SimpleObject)]
+#[graphql(name = "Track")]
 pub struct SongGql {
     pub id: String,
     pub playlist_id: String,
