@@ -23,6 +23,7 @@ const BLUR_TINT: Record<GlassColorScheme, "light" | "dark" | "default"> = {
 export type GlassSurfaceProps = ViewProps & {
   glassEffectStyle?: GlassStyle;
   colorScheme?: GlassColorScheme;
+  intensity?: number;
   tintColor?: string;
   forceFallback?: boolean;
 };
@@ -30,6 +31,7 @@ export type GlassSurfaceProps = ViewProps & {
 export function GlassSurface({
   glassEffectStyle = "regular",
   colorScheme = "dark",
+  intensity,
   tintColor,
   style,
   children,
@@ -56,7 +58,7 @@ export function GlassSurface({
 
   return (
     <BlurView
-      intensity={BLUR_INTENSITY[glassEffectStyle]}
+      intensity={intensity ?? BLUR_INTENSITY[glassEffectStyle]}
       tint={BLUR_TINT[colorScheme]}
       style={style}
       {...props}
