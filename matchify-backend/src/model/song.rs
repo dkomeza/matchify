@@ -41,6 +41,7 @@ pub struct Song {
 
 /// GraphQL-facing representation of a song/track.
 #[derive(Debug, SimpleObject)]
+#[graphql(name = "Track")]
 pub struct SongGql {
     pub id: String,
     pub playlist_id: String,
