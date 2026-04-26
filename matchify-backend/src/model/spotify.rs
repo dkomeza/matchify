@@ -20,3 +20,15 @@ pub struct SpotifyProfile {
     #[serde(default)]
     pub images: Vec<SpotifyImage>,
 }
+
+#[derive(Debug, Clone, async_graphql::SimpleObject, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SpotifyTrack {
+    pub spotify_track_id: String,
+    pub title: String,
+    pub artist: String,
+    pub album: String,
+    pub album_art_url: String,
+    pub preview_url: Option<String>,
+    pub duration_ms: i32,
+}
