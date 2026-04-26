@@ -1,38 +1,44 @@
-import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from 'react-native'
-import { useEffect } from 'react'
+import {
+  ActivityIndicator,
+  Alert,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
+import { useEffect } from "react";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
-} from 'react-native-reanimated'
-import { GlassSurface } from '@/components/glass-surface'
-import { ThemedText } from '@/components/themed-text'
-import { Radius, Spacing } from '@/constants/theme'
-import { useSpotifyLogin } from '@/hooks/use-spotify-login'
+} from "react-native-reanimated";
+import { GlassSurface } from "@/components/glass-surface";
+import { ThemedText } from "@/components/themed-text";
+import { Radius, Spacing } from "@/constants/theme";
+import { useSpotifyLogin } from "@/hooks/use-spotify-login";
 
-const SPOTIFY_GREEN = '#1DB954'
+const SPOTIFY_GREEN = "#1DB954";
 
 export function SpotifyButton() {
-  const scale = useSharedValue(1)
-  const { login, isLoading, ready, error } = useSpotifyLogin()
+  const scale = useSharedValue(1);
+  const { login, isLoading, ready, error } = useSpotifyLogin();
 
   useEffect(() => {
     if (error) {
-      Alert.alert('Login failed', error)
+      Alert.alert("Login failed", error);
     }
-  }, [error])
+  }, [error]);
 
   const animStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
-  }))
+  }));
 
   const handlePressIn = () => {
-    scale.value = withTiming(0.97, { duration: 80 })
-  }
+    scale.value = withTiming(0.97, { duration: 80 });
+  };
 
   const handlePressOut = () => {
-    scale.value = withTiming(1, { duration: 200 })
-  }
+    scale.value = withTiming(1, { duration: 200 });
+  };
 
   return (
     <Animated.View style={animStyle}>
@@ -43,7 +49,7 @@ export function SpotifyButton() {
         disabled={isLoading || !ready}
       >
         <GlassSurface
-          glassEffectStyle="regular"
+          glassEffectStyle="clear"
           colorScheme="dark"
           tintColor="rgba(29,185,84,0.20)"
           style={styles.surface}
@@ -63,22 +69,22 @@ export function SpotifyButton() {
         </GlassSurface>
       </Pressable>
     </Animated.View>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
   surface: {
     borderRadius: Radius.full,
     borderWidth: 1.5,
-    borderColor: 'rgba(29,185,84,0.65)',
+    borderColor: "rgba(29,185,84,0.65)",
   },
   inner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     height: 56,
     paddingHorizontal: Spacing.four,
     gap: Spacing.two,
   },
   icon: { fontSize: 20, color: SPOTIFY_GREEN },
-})
+});

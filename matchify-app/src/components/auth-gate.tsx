@@ -1,4 +1,3 @@
-import { SplashScreen } from "@/components/splash-screen";
 import { isAuthFailure } from "@/lib/auth-errors";
 import { LOGIN_ROUTE, useAuthStore, type User } from "@/store/auth-store";
 import { Redirect, Stack, useSegments, type Href } from "expo-router";
@@ -63,22 +62,20 @@ export function AuthGate() {
     }
   }, [error, logout]);
 
-  if (isLoading || (token && !user)) {
-    return <SplashScreen />;
-  }
+  const isResolvingAuth = isLoading || (token && !user);
 
-  if (!token && !inAuthGroup) {
+  if (!isResolvingAuth && !token && !inAuthGroup) {
     return <Redirect href={LOGIN_ROUTE} />;
   }
 
-  if (token && user && inAuthGroup) {
+  if (!isResolvingAuth && token && user && inAuthGroup) {
     return <Redirect href={TABS_ROUTE} />;
   }
 
   return (
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
-      <Stack.Screen name="(auth)/login" />
+      <Stack.Screen name="(auth)" />
       <Stack.Screen name="welcome" />
       <Stack.Screen name="(tabs)" />
     </Stack>
