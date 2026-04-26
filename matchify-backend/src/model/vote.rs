@@ -18,5 +18,6 @@ pub struct Vote {
     pub playlist_id: ObjectId,
     pub user_id: ObjectId,
     pub vote: VoteType,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub created_at: DateTime<Utc>,
 }

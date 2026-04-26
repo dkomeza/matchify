@@ -35,6 +35,7 @@ pub struct Song {
     pub proposed_by: ObjectId,
     pub status: TrackStatus,
     pub like_count: i32,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub created_at: DateTime<Utc>,
 }
 
@@ -76,7 +77,10 @@ impl From<Song> for SongGql {
 
 #[ComplexObject]
 impl SongGql {
-    async fn my_vote(&self, ctx: &Context<'_>) -> async_graphql::Result<Option<crate::model::vote::VoteType>> {
+    async fn my_vote(
+        &self,
+        ctx: &Context<'_>,
+    ) -> async_graphql::Result<Option<crate::model::vote::VoteType>> {
         let auth_user = ctx
             .data_opt::<crate::jwt::AuthUser>()
             .ok_or_else(|| async_graphql::Error::new("UNAUTHENTICATED"))?;

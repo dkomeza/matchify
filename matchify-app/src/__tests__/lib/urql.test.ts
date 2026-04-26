@@ -15,7 +15,7 @@ jest.mock('expo-router', () => ({
 }))
 
 const { getAuthHeaders } = require('@/lib/auth-headers')
-const { handleUnauthorized } = require('@/lib/urql')
+const { handleUnauthorized, urqlClientOptions } = require('@/lib/urql')
 const { useAuthStore } = require('@/store/auth-store')
 
 const mockUser = {
@@ -33,6 +33,10 @@ beforeEach(() => {
 })
 
 describe('urql auth headers', () => {
+  it('uses POST requests for GraphQL operations', () => {
+    expect(urqlClientOptions.preferGetMethod).toBe(false)
+  })
+
   it('injects the current persisted auth token as a bearer token', () => {
     useAuthStore.getState().login('jwt_token', mockUser)
 

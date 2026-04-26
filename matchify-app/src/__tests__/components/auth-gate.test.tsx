@@ -3,7 +3,7 @@
 import { render } from '@testing-library/react-native'
 
 const mockUseSegments = jest.fn(() => [])
-const mockUseQuery = jest.fn(() => [{ data: undefined, error: undefined }])
+const mockUseQuery = jest.fn((_options?: unknown) => [{ data: undefined, error: undefined }])
 
 const mockStack = jest.fn(({ children }) => {
   const { View } = require('react-native')
@@ -26,7 +26,7 @@ jest.mock('expo-router', () => {
 
 jest.mock('urql', () => ({
   gql: jest.fn((strings: TemplateStringsArray) => strings.join('')),
-  useQuery: (...args: unknown[]) => mockUseQuery(...args),
+  useQuery: (options: unknown) => mockUseQuery(options),
 }))
 
 jest.mock('@/components/splash-screen', () => ({

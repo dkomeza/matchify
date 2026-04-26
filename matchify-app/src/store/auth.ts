@@ -1,29 +1,29 @@
-import * as SecureStore from 'expo-secure-store'
-import { router, type Href } from 'expo-router'
-import { create } from 'zustand'
+import * as SecureStore from "expo-secure-store";
+import { router, type Href } from "expo-router";
+import { create } from "zustand";
 
-export const JWT_KEY = 'jwt'
-export const LOGIN_ROUTE = '/(auth)/login' as Href
+export const JWT_KEY = "jwt";
+export const LOGIN_ROUTE = "/(auth)/login" as Href;
 
 export interface User {
-  id: string
-  displayName: string
-  imageUrl: string | null
+  id: string;
+  displayName: string;
+  imageUrl: string | null;
 }
 
-export type SpotifyUser = User
+export type SpotifyUser = User;
 
 export interface AuthState {
-  token: string | null
-  user: User | null
-  isLoading: boolean
-  login: (token: string, user: User) => void
-  logout: () => void
+  token: string | null;
+  user: User | null;
+  isLoading: boolean;
+  login: (token: string, user: User) => void;
+  logout: () => void;
 }
 
 interface AuthActions {
-  initialize: () => Promise<void>
-  hydrateUser: (user: User) => void
+  initialize: () => Promise<void>;
+  hydrateUser: (user: User) => void;
 }
 
 export const useAuthStore = create<AuthState & AuthActions>()((set, get) => ({
@@ -31,22 +31,22 @@ export const useAuthStore = create<AuthState & AuthActions>()((set, get) => ({
   user: null,
   isLoading: true,
   login: (token, user) => {
-    void SecureStore.setItemAsync(JWT_KEY, token)
-    set({ token, user, isLoading: false })
+    void SecureStore.setItemAsync(JWT_KEY, token);
+    set({ token, user, isLoading: false });
   },
   logout: () => {
-    void SecureStore.deleteItemAsync(JWT_KEY)
-    set({ token: null, user: null, isLoading: false })
-    router.replace(LOGIN_ROUTE)
+    void SecureStore.deleteItemAsync(JWT_KEY);
+    set({ token: null, user: null, isLoading: false });
+    router.replace(LOGIN_ROUTE);
   },
   initialize: async () => {
-    set({ isLoading: true })
+    set({ isLoading: true });
 
     try {
-      const token = await SecureStore.getItemAsync(JWT_KEY)
-      set({ token, user: null, isLoading: false })
+      const token = await SecureStore.getItemAsync(JWT_KEY);
+      set({ token, user: null, isLoading: false });
     } catch {
-      get().logout()
+      get().logout();
     }
   },
   hydrateUser: (user) => {
@@ -54,6 +54,6 @@ export const useAuthStore = create<AuthState & AuthActions>()((set, get) => ({
       user,
       isLoading: false,
       token: state.token,
-    }))
+    }));
   },
-}))
+}));

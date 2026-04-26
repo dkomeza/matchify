@@ -31,20 +31,18 @@ const toUser = (me: MeData["me"]): User => ({
 const TABS_ROUTE = "/(tabs)/home" as Href;
 
 export function AuthGate() {
-  const token = useAuthStore((s) => s.token);
-  const user = useAuthStore((s) => s.user);
-  const isLoading = useAuthStore((s) => s.isLoading);
-  const initialize = useAuthStore((s) => s.initialize);
-  const hydrateUser = useAuthStore((s) => s.hydrateUser);
-  const logout = useAuthStore((s) => s.logout);
+  const { token, user, isLoading, initialize, hydrateUser, logout } =
+    useAuthStore();
   const segments = useSegments();
   const rootSegment = String(segments[0] ?? "");
   const inAuthGroup = rootSegment === "(auth)" || rootSegment === "welcome";
 
   const [{ data, error }] = useQuery<MeData>({
     query: ME_QUERY,
-    pause: !token || !!user,
+    pause: !token,
   });
+
+  console.log(data, error, token);
 
   useEffect(() => {
     void initialize();

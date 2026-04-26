@@ -57,7 +57,7 @@ const withAuthHeader = async (operation: Operation) => {
     ...operation.context,
     fetchOptions: {
       ...fetchOptions,
-      headers,
+      headers: Object.fromEntries(headers.entries()),
     },
   })
 }
@@ -89,8 +89,9 @@ const toSSERequest = (request: SubscriptionOperation): RequestParams => {
   }
 }
 
-export const urqlClient = createClient({
+export const urqlClientOptions = {
   url: `${API_URL}/graphql`,
+  preferGetMethod: false,
   exchanges: [
     cacheExchange,
     authExchange,
@@ -105,4 +106,6 @@ export const urqlClient = createClient({
       }),
     }),
   ],
-})
+} satisfies Parameters<typeof createClient>[0]
+
+export const urqlClient = createClient(urqlClientOptions)
