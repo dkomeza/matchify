@@ -45,7 +45,7 @@ export default function WelcomeScreen() {
         </Animated.View>
 
         <Animated.View
-          entering={FadeInDown.delay(300).duration(700)}
+          // entering={FadeInDown.delay(300).duration(700)}
           style={styles.cardStackArea}
         >
           <CardStack />

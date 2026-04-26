@@ -1,9 +1,9 @@
 use axum::{
     extract::FromRequestParts,
-    http::{request::Parts, StatusCode},
+    http::{StatusCode, request::Parts},
 };
 
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 use mongodb::bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -108,5 +108,22 @@ where
             }))),
             Err(e) => Err((StatusCode::UNAUTHORIZED, format!("Invalid token: {}", e))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{sign, verify};
+    use mongodb::bson::oid::ObjectId;
+
+    #[test]
+    fn signs_and_verifies_jwt() {
+        let user_id = ObjectId::new();
+        let secret = "a".repeat(32);
+
+        let token = sign(&user_id, &secret, 7).expect("jwt should sign");
+        let claims = verify(&token, &secret).expect("jwt should verify");
+
+        assert_eq!(claims.sub, user_id.to_hex());
     }
 }

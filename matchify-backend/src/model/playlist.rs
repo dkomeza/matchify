@@ -2,8 +2,8 @@ use async_graphql::{Context, Object, Result as GraphqlResult};
 use chrono::{DateTime, Utc};
 use futures::TryStreamExt;
 use mongodb::{
-    bson::{doc, oid::ObjectId},
     Database,
+    bson::{doc, oid::ObjectId},
 };
 use serde::{Deserialize, Serialize};
 
@@ -29,7 +29,9 @@ pub struct Playlist {
     pub invite_code: String, // unique, 8-char random alphanumeric
     pub vote_threshold: i32, // default: ceil(members / 2)
     pub spotify_playlist_id: Option<String>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub created_at: DateTime<Utc>,
+    #[serde(with = "mongodb::bson::serde_helpers::chrono_datetime_as_bson_datetime")]
     pub updated_at: DateTime<Utc>,
 }
 

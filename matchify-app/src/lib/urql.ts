@@ -9,42 +9,43 @@ import {
   type SubscriptionOperation,
 } from 'urql'
 import { createClient as createSSEClient, type RequestParams } from 'graphql-sse'
-import * as SecureStore from 'expo-secure-store'
-import { router } from 'expo-router'
 
+import { isAuthFailure } from '@/lib/auth-errors'
 import { useAuthStore } from '@/store/auth-store'
 
-const JWT_KEY = 'jwt'
 const API_URL = process.env.EXPO_PUBLIC_API_URL
 
 if (!API_URL) {
   throw new Error('EXPO_PUBLIC_API_URL is not set in .env.local')
 }
 
-const getAuthHeaders = async (): Promise<Record<string, string>> => {
-  const token = await SecureStore.getItemAsync(JWT_KEY)
+const getAuthHeaders = (): Record<string, string> => {
+  const token = useAuthStore.getState().token
 
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 let unauthorizedRedirect: Promise<void> | null = null
 
-const handleUnauthorized = () => {
-  unauthorizedRedirect ??= (async () => {
-    await SecureStore.deleteItemAsync(JWT_KEY)
-    useAuthStore.getState().logout()
-    router.replace('/welcome')
-    unauthorizedRedirect = null
-  })()
+export const handleUnauthorized = () => {
+  if (unauthorizedRedirect) return
+
+  unauthorizedRedirect = Promise.resolve()
+    .then(() => {
+      useAuthStore.getState().logout()
+    })
+    .finally(() => {
+      unauthorizedRedirect = null
+    })
 }
 
-const withAuthHeader = async (operation: Operation) => {
+const withAuthHeader = (operation: Operation) => {
   const fetchOptions =
     typeof operation.context.fetchOptions === 'function'
       ? operation.context.fetchOptions()
       : operation.context.fetchOptions ?? {}
   const headers = new Headers(fetchOptions.headers)
-  const authHeaders = await getAuthHeaders()
+  const authHeaders = getAuthHeaders()
 
   if (authHeaders.Authorization) {
     headers.set('Authorization', authHeaders.Authorization)
@@ -56,26 +57,15 @@ const withAuthHeader = async (operation: Operation) => {
     ...operation.context,
     fetchOptions: {
       ...fetchOptions,
-      headers,
+      headers: Object.fromEntries(headers.entries()),
     },
   })
-}
-
-const isUnauthorizedResult = (error: unknown) => {
-  if (!error || typeof error !== 'object') return false
-
-  const response = 'response' in error ? error.response : undefined
-  if (response && typeof response === 'object' && 'status' in response) {
-    return response.status === 401
-  }
-
-  return false
 }
 
 export const authExchange = mapExchange({
   onOperation: withAuthHeader,
   onError(error) {
-    if (isUnauthorizedResult(error)) {
+    if (isAuthFailure(error)) {
       handleUnauthorized()
     }
   },
@@ -99,8 +89,9 @@ const toSSERequest = (request: SubscriptionOperation): RequestParams => {
   }
 }
 
-export const urqlClient = createClient({
+export const urqlClientOptions = {
   url: `${API_URL}/graphql`,
+  preferGetMethod: false,
   exchanges: [
     cacheExchange,
     authExchange,
@@ -115,4 +106,6 @@ export const urqlClient = createClient({
       }),
     }),
   ],
-})
+} satisfies Parameters<typeof createClient>[0]
+
+export const urqlClient = createClient(urqlClientOptions)

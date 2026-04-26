@@ -31,8 +31,6 @@ const LOGIN_WITH_SPOTIFY_MUTATION = gql`
   }
 `
 
-const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000
-
 interface LoginWithSpotifyData {
   loginWithSpotify: {
     token: string
@@ -50,7 +48,7 @@ interface LoginWithSpotifyVariables {
 }
 
 export function useSpotifyLogin() {
-  const setSession = useAuthStore((s) => s.setSession)
+  const loginToStore = useAuthStore((s) => s.login)
   const [loginState, executeLogin] = useMutation<
     LoginWithSpotifyData,
     LoginWithSpotifyVariables
@@ -94,7 +92,7 @@ export function useSpotifyLogin() {
           imageUrl: payload.user.profileImageUrl,
         }
 
-        setSession(payload.token, '', Date.now() + SESSION_TTL_MS, user)
+        loginToStore(payload.token, user)
         setError(null)
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Spotify login failed.')
@@ -102,7 +100,7 @@ export function useSpotifyLogin() {
         setIsLoading(false)
       }
     },
-    [executeLogin, redirectUri, setSession]
+    [executeLogin, loginToStore, redirectUri]
   )
 
   useEffect(() => {
