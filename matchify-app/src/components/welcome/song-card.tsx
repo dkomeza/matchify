@@ -25,7 +25,6 @@ export function SongCard({
       glassEffectStyle="regular"
       tintColor={tint}
       style={[styles.card]}
-      forceFallback
     >
       {showContent && (
         <>
