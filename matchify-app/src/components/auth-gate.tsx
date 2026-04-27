@@ -35,7 +35,7 @@ export function AuthGate() {
     useAuthStore();
   const segments = useSegments();
   const rootSegment = String(segments[0] ?? "");
-  const inAuthGroup = rootSegment === "(auth)" || rootSegment === "welcome";
+  const inAuthGroup = rootSegment === "(auth)";
 
   const [{ data, error }] = useQuery<MeData>({
     query: ME_QUERY,
@@ -58,11 +58,9 @@ export function AuthGate() {
     }
   }, [error, logout]);
 
-  useEffect(() => {
-    console.log(user);
-  }, [user]);
-
   const isResolvingAuth = isLoading || (token && !user);
+
+  console.log(isResolvingAuth, token, user, inAuthGroup);
 
   if (!isResolvingAuth && !token && !inAuthGroup) {
     return <Redirect href={LOGIN_ROUTE} />;
@@ -76,7 +74,6 @@ export function AuthGate() {
     <Stack screenOptions={{ headerShown: false }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="(auth)" />
-      <Stack.Screen name="welcome" />
       <Stack.Screen name="(tabs)" />
     </Stack>
   );
