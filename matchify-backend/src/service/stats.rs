@@ -17,12 +17,9 @@ pub async fn get_playlist_stats(db: &Database, playlist_id: ObjectId) -> Result<
     let songs_coll = db.collection::<Song>("songs");
     let users_coll = db.collection::<User>("users");
 
-    // Aggregation pipeline joining songs, votes, and users
     let pipeline = vec![
-        // Stage 1: Filter songs by playlist_id
         doc! { "$match": { "playlist_id": playlist_id } },
         
-        // Stage 2: Join all votes per song
         doc! { "$lookup": {
             "from": "votes",
             "localField": "_id",
@@ -30,7 +27,6 @@ pub async fn get_playlist_stats(db: &Database, playlist_id: ObjectId) -> Result<
             "as": "votes"
         }},
 
-        // Stage 3: Resolve proposedBy (join users)
         doc! { "$lookup": {
             "from": "users",
             "localField": "proposed_by",
@@ -38,7 +34,6 @@ pub async fn get_playlist_stats(db: &Database, playlist_id: ObjectId) -> Result<
             "as": "proposed_by_user"
         }},
 
-        // Stage 4: Group per-song stats and playlist-level totals
         doc! { "$group": {
             "_id": "$playlist_id",
             "totalProposals": { "$sum": 1 },
@@ -49,7 +44,6 @@ pub async fn get_playlist_stats(db: &Database, playlist_id: ObjectId) -> Result<
             "songs": { "$push": "$$ROOT" }
         }},
         
-        // Stage 5: Project into PlaylistStats shape (partial, we will complete in Rust for full member participation)
         doc! { "$project": {
             "totalProposals": 1,
             "approvedCount": 1,
@@ -65,7 +59,6 @@ pub async fn get_playlist_stats(db: &Database, playlist_id: ObjectId) -> Result<
     let doc = if let Some(result) = cursor.next().await {
         result?
     } else {
-        // Zero state case when playlist has no songs
         let mut member_participation = Vec::new();
         let mut users_cursor = users_coll.find(doc! { "_id": { "$in": &playlist.member_ids } }).await?;
         while let Some(user_res) = users_cursor.next().await {
@@ -108,12 +101,10 @@ pub async fn get_playlist_stats(db: &Database, playlist_id: ObjectId) -> Result<
 
     for song_bson in songs_array {
         if let mongodb::bson::Bson::Document(song_doc) = song_bson {
-            // Count proposals
             if let Ok(proposed_by) = song_doc.get_object_id("proposed_by") {
                 *proposals_by_user.entry(proposed_by).or_insert(0) += 1;
             }
 
-            // Count votes
             if let Ok(votes) = song_doc.get_array("votes") {
                 for vote_bson in votes {
                     if let mongodb::bson::Bson::Document(vote_doc) = vote_bson {
@@ -124,7 +115,6 @@ pub async fn get_playlist_stats(db: &Database, playlist_id: ObjectId) -> Result<
                 }
             }
             
-            // Collect pending songs for top proposals
             if let Ok(song) = mongodb::bson::from_document::<Song>(song_doc.clone()) {
                 if song.status == crate::model::song::TrackStatus::Pending {
                     top_songs.push(song);
@@ -133,12 +123,10 @@ pub async fn get_playlist_stats(db: &Database, playlist_id: ObjectId) -> Result<
         }
     }
 
-    // Sort top proposals by like_count DESC
     top_songs.sort_by(|a, b| b.like_count.cmp(&a.like_count));
 
     let top_proposals = top_songs.into_iter().map(SongGql::from).collect();
 
-    // Calculate per-member participation including all members
     let mut member_participation = Vec::new();
     let mut users_cursor = users_coll.find(doc! { "_id": { "$in": &playlist.member_ids } }).await?;
     
