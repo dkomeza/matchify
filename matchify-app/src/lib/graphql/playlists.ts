@@ -55,5 +55,20 @@ export const TRACK_APPROVED_SUBSCRIPTION = gql`
   }
 `
 
+export const ADD_INITIAL_TRACKS_MUTATION = gql`
+  mutation AddInitialTracks($playlistId: String!, $spotifyTrackIds: [String!]!) {
+    addInitialTracks(playlistId: $playlistId, spotifyTrackIds: $spotifyTrackIds) {
+      id
+      spotifyTrackId
+      title
+      artist
+      albumArtUrl
+      durationMs
+      likeCount
+      createdAt
+    }
+  }
+`
+
 export const refreshMyPlaylists = (client: Client) =>
   client.query(MY_PLAYLISTS_QUERY, {}, { requestPolicy: 'network-only' }).toPromise()

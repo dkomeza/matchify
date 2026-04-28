@@ -109,6 +109,14 @@ describe('PlaylistDetailScreen', () => {
     expect(mockPush).toHaveBeenCalledWith('/(tabs)/vote?playlistId=playlist-1&playlistName=Friday%20Room')
   })
 
+  it('navigates to search in seed mode with the playlist id', () => {
+    const { getByText } = render(<PlaylistDetailScreen />)
+
+    fireEvent.press(getByText('Seed tracks'))
+
+    expect(mockPush).toHaveBeenCalledWith('/(tabs)/search?playlistId=playlist-1')
+  })
+
   it('subscribes to approved track events for the current playlist', () => {
     render(<PlaylistDetailScreen />)
 
