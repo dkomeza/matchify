@@ -17,10 +17,11 @@ export type TrackSearchRowTrack = {
 type TrackSearchRowProps = {
   track: TrackSearchRowTrack
   selected: boolean
+  selectionIndex?: number
   onToggle: (track: TrackSearchRowTrack) => void
 }
 
-export function TrackSearchRow({ track, selected, onToggle }: TrackSearchRowProps) {
+export function TrackSearchRow({ track, selected, selectionIndex, onToggle }: TrackSearchRowProps) {
   return (
     <Pressable
       accessibilityRole="button"
@@ -59,7 +60,7 @@ export function TrackSearchRow({ track, selected, onToggle }: TrackSearchRowProp
       <View style={[styles.checkSlot, selected && styles.checkSlotSelected]}>
         {selected ? (
           <ThemedText testID={`track-search-selected-${track.spotifyTrackId}`} type="micro" style={styles.checkmark}>
-            ✓
+            {selectionIndex ?? '✓'}
           </ThemedText>
         ) : null}
       </View>

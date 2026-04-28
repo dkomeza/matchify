@@ -1,25 +1,38 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import { FlatList, StyleSheet, View } from 'react-native'
+import { router, useLocalSearchParams, useNavigation } from 'expo-router'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Alert, Animated, FlatList, Pressable, StyleSheet, View } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
-import { useQuery } from 'urql'
+import { useClient, useMutation, useQuery } from 'urql'
 
+import { GlassView } from '@/components/glass-view'
 import { GlassInput } from '@/components/ui/glass-input'
 import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
 import { TrackSearchRow, type TrackSearchRowTrack } from '@/components/track/track-search-row'
 import { Colors, Radius, ScreenPadding, Spacing } from '@/constants/theme'
+import { ADD_INITIAL_TRACKS_MUTATION, PLAYLIST_DETAIL_QUERY } from '@/lib/graphql/playlists'
 import { SEARCH_TRACKS_QUERY } from '@/lib/graphql/search'
 
 const SEARCH_LIMIT = 20
+const MAX_SELECTED_TRACKS = 50
 
 type SearchTracksData = {
   searchTracks: TrackSearchRowTrack[]
 }
 
+type AddInitialTracksData = {
+  addInitialTracks: unknown[]
+}
+
 export default function SearchScreen() {
+  const { playlistId } = useLocalSearchParams<{ playlistId?: string }>()
+  const navigation = useNavigation()
+  const client = useClient()
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
+  const actionBarProgress = useRef(new Animated.Value(0)).current
+  const completingAddRef = useRef(false)
 
   const trimmedQuery = query.trim()
 
@@ -42,6 +55,7 @@ export default function SearchScreen() {
     variables: { query: debouncedQuery, limit: SEARCH_LIMIT },
     pause: debouncedQuery.length === 0,
   })
+  const [{ fetching: addingTracks }, addInitialTracks] = useMutation<AddInitialTracksData>(ADD_INITIAL_TRACKS_MUTATION)
 
   const tracks = data?.searchTracks ?? []
   const showInitialPrompt = trimmedQuery.length === 0
@@ -49,6 +63,17 @@ export default function SearchScreen() {
   const showNoResults = debouncedQuery.length > 0 && !fetching && !error && tracks.length === 0
 
   const selectedCount = selectedIds.size
+  const selectedTrackIds = useMemo(() => Array.from(selectedIds), [selectedIds])
+  const selectionOrder = useMemo(() => {
+    const order = new Map<string, number>()
+
+    selectedTrackIds.forEach((id, index) => {
+      order.set(id, index + 1)
+    })
+
+    return order
+  }, [selectedTrackIds])
+  const addButtonLabel = `Add ${selectedCount} ${selectedCount === 1 ? 'track' : 'tracks'}`
 
   const toggleTrack = useCallback((track: TrackSearchRowTrack) => {
     setSelectedIds((current) => {
@@ -57,12 +82,64 @@ export default function SearchScreen() {
       if (next.has(track.spotifyTrackId)) {
         next.delete(track.spotifyTrackId)
       } else {
+        if (next.size >= MAX_SELECTED_TRACKS) {
+          return current
+        }
+
         next.add(track.spotifyTrackId)
       }
 
       return next
     })
   }, [])
+
+  const confirmAddTracks = useCallback(async () => {
+    if (!playlistId || selectedTrackIds.length === 0 || addingTracks) return
+
+    const result = await addInitialTracks({
+      playlistId,
+      spotifyTrackIds: selectedTrackIds,
+    })
+
+    if (result.error) {
+      Alert.alert('Tracks could not be added', 'Check your connection and try again.')
+      return
+    }
+
+    await client.query(PLAYLIST_DETAIL_QUERY, { id: playlistId }, { requestPolicy: 'network-only' }).toPromise()
+    completingAddRef.current = true
+    setSelectedIds(new Set())
+    router.back()
+  }, [addInitialTracks, addingTracks, client, playlistId, selectedTrackIds])
+
+  useEffect(() => {
+    Animated.spring(actionBarProgress, {
+      toValue: playlistId && selectedCount > 0 ? 1 : 0,
+      useNativeDriver: true,
+      damping: 18,
+      stiffness: 220,
+    }).start()
+  }, [actionBarProgress, playlistId, selectedCount])
+
+  useEffect(() => {
+    return navigation.addListener('beforeRemove', (event) => {
+      if (selectedIds.size === 0 || completingAddRef.current) return
+
+      event.preventDefault()
+
+      Alert.alert('Discard selected tracks?', 'Your selected tracks will not be added to this playlist.', [
+        { text: 'Keep editing', style: 'cancel' },
+        {
+          text: 'Discard',
+          style: 'destructive',
+          onPress: () => {
+            setSelectedIds(new Set())
+            navigation.dispatch(event.data.action)
+          },
+        },
+      ])
+    })
+  }, [navigation, selectedIds])
 
   const listContentStyle = useMemo(
     () => [styles.listContent, (showInitialPrompt || showNoResults || error) && styles.stateListContent],
@@ -103,7 +180,12 @@ export default function SearchScreen() {
             keyExtractor={(item) => item.spotifyTrackId}
             keyboardShouldPersistTaps="handled"
             renderItem={({ item }) => (
-              <TrackSearchRow track={item} selected={selectedIds.has(item.spotifyTrackId)} onToggle={toggleTrack} />
+              <TrackSearchRow
+                track={item}
+                selected={selectedIds.has(item.spotifyTrackId)}
+                selectionIndex={selectionOrder.get(item.spotifyTrackId)}
+                onToggle={toggleTrack}
+              />
             )}
             contentContainerStyle={listContentStyle}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
@@ -112,6 +194,39 @@ export default function SearchScreen() {
             }
           />
         )}
+
+        {playlistId && selectedCount > 0 ? (
+          <Animated.View
+            pointerEvents={selectedCount > 0 ? 'auto' : 'none'}
+            style={[
+              styles.addBar,
+              {
+                opacity: actionBarProgress,
+                transform: [
+                  {
+                    translateY: actionBarProgress.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [28, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <Pressable
+              accessibilityRole="button"
+              disabled={addingTracks || selectedCount === 0}
+              onPress={confirmAddTracks}
+              style={({ pressed }) => [styles.addButton, pressed && styles.pressed, addingTracks && styles.addButtonDisabled]}
+            >
+              <GlassView glassEffectStyle="clear" colorScheme="dark" style={styles.addPill}>
+                <ThemedText type="smallBold" style={styles.addLabel}>
+                  {addingTracks ? 'Adding...' : addButtonLabel}
+                </ThemedText>
+              </GlassView>
+            </Pressable>
+          </Animated.View>
+        ) : null}
       </SafeAreaView>
     </ThemedView>
   )
@@ -199,6 +314,38 @@ const styles = StyleSheet.create({
   },
   separator: {
     height: Spacing.two,
+  },
+  addBar: {
+    position: 'absolute',
+    left: ScreenPadding,
+    right: ScreenPadding,
+    bottom: 96,
+    alignItems: 'center',
+  },
+  addButton: {
+    borderRadius: Radius.full,
+  },
+  addButtonDisabled: {
+    opacity: 0.72,
+  },
+  addPill: {
+    minHeight: 54,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.glassHighlight,
+    paddingHorizontal: Spacing.four,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    backgroundColor: Colors.brandGlow,
+    boxShadow: `0 16px 36px ${Colors.brandGlow}`,
+  },
+  addLabel: {
+    color: Colors.text,
+  },
+  pressed: {
+    opacity: 0.78,
+    transform: [{ scale: 0.99 }],
   },
   skeletonList: {
     paddingHorizontal: ScreenPadding,

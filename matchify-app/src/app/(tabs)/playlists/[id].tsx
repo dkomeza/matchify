@@ -123,6 +123,10 @@ export default function PlaylistDetailScreen() {
     );
   };
 
+  const seedTracks = () => {
+    router.push(`/(tabs)/search?playlistId=${id}`);
+  };
+
   const refresh = () => {
     void executeQuery({ requestPolicy: "network-only" });
   };
@@ -163,8 +167,8 @@ export default function PlaylistDetailScreen() {
 
         <Pressable
           accessibilityRole="button"
-          disabled
-          style={styles.proposeFab}
+          onPress={seedTracks}
+          style={({ pressed }) => [styles.proposeFab, pressed && styles.pressed]}
         >
           <GlassView
             glassEffectStyle="clear"
@@ -172,7 +176,7 @@ export default function PlaylistDetailScreen() {
             style={styles.proposePill}
           >
             <ThemedText type="smallBold" themeColor="brand">
-              Propose a Track
+              Seed tracks
             </ThemedText>
           </GlassView>
         </Pressable>
@@ -397,7 +401,6 @@ const styles = StyleSheet.create({
     left: "50%",
     transform: [{ translateX: "-50%" }],
     borderRadius: Radius.full,
-    opacity: 0.58,
   },
   proposePill: {
     minHeight: 52,
