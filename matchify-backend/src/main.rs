@@ -7,8 +7,8 @@ pub mod jwt;
 pub mod model;
 pub mod service;
 
-use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
-use axum::{Router, routing::post};
+use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
+use axum::{Router, routing::{get, post}};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
@@ -65,6 +65,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     GraphQLResponse::from(schema.execute(req).await)
                 }
             }),
+        )
+        .route(
+            "/graphql/ws",
+            get(GraphQLSubscription::new(schema.clone())),
+        )
+        .layer(
+            tower_http::cors::CorsLayer::new()
+                .allow_origin(tower_http::cors::Any)
+                .allow_headers(tower_http::cors::Any)
+                .allow_methods(tower_http::cors::Any),
         )
         .layer(axum::extract::Extension(shared_config));
     tracing::info!("Successfully built Axum Router");
