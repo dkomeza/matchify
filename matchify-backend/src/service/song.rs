@@ -252,7 +252,6 @@ pub async fn vote_on_track(
                 }
             }
         } else {
-            // SKIP votes don't change like_count or status
         }
 
         match session.commit_transaction().await {

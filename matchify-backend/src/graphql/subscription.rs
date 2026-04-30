@@ -50,8 +50,6 @@ impl MatchifySubscription {
     }
 }
 
-/// Returns `Ok(())` when the authenticated caller is a member of `playlist_id`,
-/// otherwise returns a FORBIDDEN error that closes the subscription stream.
 async fn guard_member(
     ctx: &Context<'_>,
     playlist_id: ObjectId,
