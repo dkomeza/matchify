@@ -1,9 +1,10 @@
 use crate::error::{AppError, Result};
+use crate::events::{EventBroker, PlaylistEvent};
 use crate::model::playlist::Playlist;
-use crate::model::song::{Song, TrackStatus};
+use crate::model::song::{Song, SongGql, TrackStatus};
 use crate::service::spotify::SpotifyClient;
 use chrono::Utc;
-use mongodb::{bson::doc, bson::oid::ObjectId, Database, Client, options::TransactionOptions, error::TRANSIENT_TRANSACTION_ERROR};
+use mongodb::{bson::doc, bson::oid::ObjectId, Client, Database, error::TRANSIENT_TRANSACTION_ERROR, options::TransactionOptions};
 use futures::StreamExt;
 use crate::model::vote::{Vote, VoteType};
 
@@ -22,6 +23,7 @@ pub async fn add_initial_tracks(
     spotify_track_ids: &[String],
     spotify_client: &SpotifyClient,
     access_token: &str,
+    broker: &EventBroker,
 ) -> Result<Vec<Song>> {
     let playlists = db.collection::<Playlist>("playlists");
     let playlist = playlists
@@ -59,6 +61,10 @@ pub async fn add_initial_tracks(
 
         match songs_coll.insert_one(&song).await {
             Ok(_) => {
+                broker.publish(
+                    playlist_id,
+                    PlaylistEvent::NewProposal(SongGql::from(song.clone())),
+                );
                 inserted_songs.push(song);
             }
             Err(e) if is_duplicate_key_error(&e) => {}
@@ -132,6 +138,7 @@ pub async fn vote_on_track(
     track_id: ObjectId,
     user_id: ObjectId,
     vote_type: VoteType,
+    broker: &EventBroker,
 ) -> Result<Song> {
     let songs_coll = db.collection::<Song>("songs");
     let votes_coll = db.collection::<Vote>("votes");
@@ -228,6 +235,10 @@ pub async fn vote_on_track(
                         if res.modified_count > 0 {
                             updated_song.status = TrackStatus::Approved;
                             tracing::info!("Track {} approved!", track_id);
+                            broker.publish(
+                                updated_song.playlist_id,
+                                PlaylistEvent::TrackApproved(SongGql::from(updated_song.clone())),
+                            );
                         }
                     }
                     Err(e) => {
@@ -241,7 +252,7 @@ pub async fn vote_on_track(
                 }
             }
         } else {
-            // For SKIP, just return the song since we didn't update it
+            // SKIP votes don't change like_count or status
         }
 
         match session.commit_transaction().await {
@@ -264,6 +275,7 @@ pub async fn propose_track(
     spotify_track_id: String,
     spotify_client: &SpotifyClient,
     access_token: &str,
+    broker: &EventBroker,
 ) -> Result<Song> {
     let playlists = db.collection::<Playlist>("playlists");
     let playlist = playlists
@@ -302,8 +314,11 @@ pub async fn propose_track(
 
     match songs_coll.insert_one(&song).await {
         Ok(_) => {
-            // Publish newProposal SSE event
             tracing::info!("Track {} proposed!", song.id);
+            broker.publish(
+                playlist_id,
+                PlaylistEvent::NewProposal(SongGql::from(song.clone())),
+            );
             Ok(song)
         }
         Err(e) if is_duplicate_key_error(&e) => {
