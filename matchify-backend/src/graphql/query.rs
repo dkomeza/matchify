@@ -120,7 +120,7 @@ impl Query {
     async fn playlist_stats(
         &self,
         ctx: &Context<'_>,
-        playlist_id: async_graphql::ID,
+        playlist_id: String,
     ) -> Result<crate::model::PlaylistStats> {
         let auth_user = ctx
             .data_opt::<AuthUser>()
