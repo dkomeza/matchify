@@ -166,7 +166,7 @@ pub async fn get_playlist_stats(db: &Database, playlist_id: ObjectId) -> Result<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mongodb::{bson::{doc, oid::ObjectId}, Client, Database};
+    use mongodb::{bson::oid::ObjectId, Client, Database};
     use chrono::Utc;
     use dotenvy::dotenv;
     use crate::model::{User, playlist::Playlist, song::{Song, TrackStatus}, vote::{Vote, VoteType}};
