@@ -273,6 +273,7 @@ impl Mutation {
             &spotify_track_ids,
             spotify_client,
             &access_token,
+            ctx.data_unchecked::<crate::events::EventBroker>(),
         )
         .await?;
 
@@ -298,7 +299,15 @@ impl Mutation {
         let t_id = ObjectId::parse_str(track_id.as_str())
             .map_err(|_| AppError::Validation("Invalid track ID format".to_string()))?;
 
-        let song = crate::service::song::vote_on_track(client, db, t_id, caller_id, vote).await?;
+        let song = crate::service::song::vote_on_track(
+            client,
+            db,
+            t_id,
+            caller_id,
+            vote,
+            ctx.data_unchecked::<crate::events::EventBroker>(),
+        )
+        .await?;
 
         Ok(crate::model::song::SongGql::from(song))
     }
@@ -346,6 +355,7 @@ impl Mutation {
             spotify_track_id,
             spotify_client,
             &access_token,
+            ctx.data_unchecked::<crate::events::EventBroker>(),
         )
         .await?;
 
