@@ -117,6 +117,36 @@ impl Query {
         Ok(song.map(crate::model::song::SongGql::from))
     }
 
+    async fn playlist_stats(
+        &self,
+        ctx: &Context<'_>,
+        playlist_id: async_graphql::ID,
+    ) -> Result<crate::model::PlaylistStats> {
+        let auth_user = ctx
+            .data_opt::<AuthUser>()
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let caller_id = mongodb::bson::oid::ObjectId::from_str(&auth_user.user_id)
+            .map_err(|_| AppError::Unexpected)?;
+
+        let p_id = mongodb::bson::oid::ObjectId::from_str(&playlist_id)
+            .map_err(|_| AppError::Validation("Invalid playlist ID format".to_string()))?;
+
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+
+        let playlist = playlist_service::find_by_id(db, p_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Playlist {playlist_id} not found")))?;
+
+        if !playlist.member_ids.contains(&caller_id) {
+            return Err(AppError::Forbidden(
+                "You are not a member of this playlist".to_string(),
+            ));
+        }
+
+        crate::service::stats::get_playlist_stats(db, p_id).await
+    }
+
     // -----------------------------------------------------------------------
     // Spotify
     // -----------------------------------------------------------------------
