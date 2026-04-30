@@ -39,7 +39,7 @@ pub struct Song {
     pub created_at: DateTime<Utc>,
 }
 
-#[derive(Debug, SimpleObject)]
+#[derive(Debug, Clone, SimpleObject)]
 #[graphql(name = "Track", complex)]
 pub struct SongGql {
     pub id: String,

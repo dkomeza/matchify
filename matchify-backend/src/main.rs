@@ -2,18 +2,19 @@ pub mod config;
 pub mod crypto;
 pub mod db;
 pub mod error;
+pub mod events;
 pub mod graphql;
 pub mod jwt;
 pub mod model;
 pub mod service;
 
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
-use axum::{Router, routing::{get, post}};
+use axum::routing::{get, post};
+use axum::Router;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Setup structured logging
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -24,19 +25,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tracing::info!("Starting Matchify Backend");
 
-    // 2. Init App Config
     tracing::info!("Initializing App Config");
     let config = config::AppConfig::init();
     tracing::info!("Successfully initialized App Config");
 
-    // 3. Init Database
     tracing::info!("Initializing Database");
     let client = db::connect(&config.mongo_uri).await?;
     let db = client.database("matchify");
     db::indexes::create_indexes(&db).await?;
     tracing::info!("Successfully initialized Database");
 
-    // 4. Init Spotify Client
     tracing::info!("Initializing Spotify Client");
     let spotify_client = service::spotify::SpotifyClient::new(
         config.spotify_client_id.clone(),
@@ -44,19 +42,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     tracing::info!("Successfully initialized Spotify Client");
 
-    // 5. Build GraphQL Schema
+    tracing::info!("Initializing Event Broker");
+    let event_broker = events::EventBroker::new();
+    tracing::info!("Successfully initialized Event Broker");
+
     tracing::info!("Building GraphQL Schema");
-    let schema = graphql::build_schema(db, config.clone(), spotify_client);
+    let schema = graphql::build_schema(db, config.clone(), spotify_client, event_broker.clone());
     tracing::info!("Successfully built GraphQL Schema");
 
-    // 6. Build Axum Router
     tracing::info!("Building Axum Router");
     let shared_config = std::sync::Arc::new(config.clone());
+    let schema_clone1 = schema.clone();
+    let schema_clone2 = schema.clone();
     let app = Router::new()
         .route(
             "/graphql",
             post(move |optional_auth: jwt::OptionalAuthUser, req: GraphQLRequest| {
-                let schema = schema.clone();
+                let schema = schema_clone1.clone();
                 async move {
                     let mut req = req.into_inner();
                     if let Some(user) = optional_auth.0 {
@@ -68,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .route(
             "/graphql/ws",
-            get(GraphQLSubscription::new(schema.clone())),
+            axum::routing::any_service(GraphQLSubscription::new(schema_clone2)),
         )
         .layer(
             tower_http::cors::CorsLayer::new()
@@ -76,10 +78,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .allow_headers(tower_http::cors::Any)
                 .allow_methods(tower_http::cors::Any),
         )
-        .layer(axum::extract::Extension(shared_config));
+        .layer(axum::extract::Extension(shared_config))
+        .layer(axum::extract::Extension(event_broker));
     tracing::info!("Successfully built Axum Router");
 
-    // 6. Start listening
     tracing::info!("Starting server");
     let addr = format!("0.0.0.0:{}", config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await?;
