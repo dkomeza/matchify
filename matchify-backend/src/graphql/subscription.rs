@@ -1,5 +1,5 @@
 use async_graphql::{ID, Subscription};
-use futures::{Stream, stream, StreamExt};
+use futures::{Stream, StreamExt};
 
 use crate::model::song::SongGql;
 

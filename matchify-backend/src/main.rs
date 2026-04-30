@@ -9,7 +9,7 @@ pub mod model;
 pub mod service;
 
 use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
-use axum::routing::{get, post};
+use axum::routing::post;
 use axum::Router;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
