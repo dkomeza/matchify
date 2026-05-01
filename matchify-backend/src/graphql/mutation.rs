@@ -295,7 +295,15 @@ impl Mutation {
 
         let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
         let client = db.client();
-        
+
+        let spotify_client = ctx
+            .data::<SpotifyClient>()
+            .map_err(|_| AppError::Unexpected)?;
+
+        let config = ctx
+            .data::<crate::config::AppConfig>()
+            .map_err(|_| AppError::Unexpected)?;
+
         let t_id = ObjectId::parse_str(track_id.as_str())
             .map_err(|_| AppError::Validation("Invalid track ID format".to_string()))?;
 
@@ -306,6 +314,8 @@ impl Mutation {
             caller_id,
             vote,
             ctx.data_unchecked::<crate::events::EventBroker>(),
+            spotify_client,
+            config,
         )
         .await?;
 

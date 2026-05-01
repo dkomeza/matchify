@@ -261,6 +261,100 @@ impl SpotifyClient {
 
         Ok(tracks)
     }
+
+    pub async fn create_playlist(
+        &self,
+        owner_access_token: &str,
+        owner_spotify_id: &str,
+        name: &str,
+        description: &str,
+    ) -> Result<String> {
+        let url = format!("{}/v1/users/{}/playlists", self.base_url_api, owner_spotify_id);
+
+        let body = serde_json::json!({
+            "name": name,
+            "description": description,
+            "public": false,
+        });
+
+        let mut attempts = 0u8;
+        loop {
+            attempts += 1;
+            let response = self
+                .client
+                .post(&url)
+                .bearer_auth(owner_access_token)
+                .json(&body)
+                .send()
+                .await?;
+
+            let status = response.status();
+
+            if status.is_success() {
+                #[derive(serde::Deserialize)]
+                struct CreatePlaylistResponse {
+                    id: String,
+                }
+                let resp = response.json::<CreatePlaylistResponse>().await?;
+                return Ok(resp.id);
+            }
+
+            // Retry once on transient server errors.
+            if status.is_server_error() && attempts < 2 {
+                tracing::warn!(status = %status, "create_playlist: transient error, retrying");
+                continue;
+            }
+
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(AppError::SpotifyAuth(format!(
+                "Failed to create Spotify playlist ({}): {}",
+                status, error_text
+            )));
+        }
+    }
+
+    pub async fn add_track_to_playlist(
+        &self,
+        owner_access_token: &str,
+        spotify_playlist_id: &str,
+        track_uri: &str,
+    ) -> Result<()> {
+        let url = format!(
+            "{}/v1/playlists/{}/tracks",
+            self.base_url_api, spotify_playlist_id
+        );
+
+        let body = serde_json::json!({ "uris": [track_uri] });
+
+        let mut attempts = 0u8;
+        loop {
+            attempts += 1;
+            let response = self
+                .client
+                .post(&url)
+                .bearer_auth(owner_access_token)
+                .json(&body)
+                .send()
+                .await?;
+
+            let status = response.status();
+
+            if status.is_success() {
+                return Ok(());
+            }
+
+            if status.is_server_error() && attempts < 2 {
+                tracing::warn!(status = %status, "add_track_to_playlist: transient error, retrying");
+                continue;
+            }
+
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(AppError::SpotifyAuth(format!(
+                "Failed to add track to Spotify playlist ({}): {}",
+                status, error_text
+            )));
+        }
+    }
 }
 
 
@@ -310,6 +404,7 @@ pub async fn get_valid_access_token(
 }
 
 #[cfg(test)]
+#[allow(unused_imports)]
 mod tests {
     use super::*;
     use mockito::Server;
@@ -453,5 +548,142 @@ mod tests {
         assert_eq!(profile.images[0].url, "https://example.com/image.jpg");
 
         mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_create_playlist_success() {
+        let mut server = Server::new_async().await;
+
+        let mock_response = r#"{"id": "new_playlist_id", "name": "Test Playlist"}"#;
+
+        let mock = server
+            .mock("POST", "/v1/users/user123/playlists")
+            .match_header("authorization", "Bearer owner_token")
+            .with_status(201)
+            .with_header("content-type", "application/json")
+            .with_body(mock_response)
+            .create_async()
+            .await;
+
+        let client = SpotifyClient::with_base_urls(
+            "client_id".to_string(),
+            "client_secret".to_string(),
+            server.url(),
+            server.url(),
+        );
+
+        let playlist_id = client
+            .create_playlist("owner_token", "user123", "Test Playlist", "A test playlist")
+            .await
+            .unwrap();
+
+        assert_eq!(playlist_id, "new_playlist_id");
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_create_playlist_retries_on_5xx() {
+        let mut server = Server::new_async().await;
+
+        let _fail_mock = server
+            .mock("POST", "/v1/users/user123/playlists")
+            .with_status(500)
+            .with_body("Internal Server Error")
+            .expect(1)
+            .create_async()
+            .await;
+
+        let _ok_mock = server
+            .mock("POST", "/v1/users/user123/playlists")
+            .with_status(201)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"id": "retry_playlist_id"}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let client = SpotifyClient::with_base_urls(
+            "client_id".to_string(),
+            "client_secret".to_string(),
+            server.url(),
+            server.url(),
+        );
+
+        let playlist_id = client
+            .create_playlist("owner_token", "user123", "Test Playlist", "desc")
+            .await
+            .unwrap();
+
+        assert_eq!(playlist_id, "retry_playlist_id");
+    }
+
+    #[tokio::test]
+    async fn test_add_track_to_playlist_success() {
+        let mut server = Server::new_async().await;
+
+        let mock = server
+            .mock("POST", "/v1/playlists/playlist_abc/tracks")
+            .match_header("authorization", "Bearer owner_token")
+            .with_status(201)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"snapshot_id": "abc123"}"#)
+            .create_async()
+            .await;
+
+        let client = SpotifyClient::with_base_urls(
+            "client_id".to_string(),
+            "client_secret".to_string(),
+            server.url(),
+            server.url(),
+        );
+
+        client
+            .add_track_to_playlist(
+                "owner_token",
+                "playlist_abc",
+                "spotify:track:4iV5W9uYEdYUVa79Axb7Rh",
+            )
+            .await
+            .unwrap();
+
+        mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_add_track_to_playlist_retries_on_5xx() {
+        let mut server = Server::new_async().await;
+
+        let _fail_mock = server
+            .mock("POST", "/v1/playlists/playlist_abc/tracks")
+            .with_status(503)
+            .with_body("Service Unavailable")
+            .expect(1)
+            .create_async()
+            .await;
+
+        let _ok_mock = server
+            .mock("POST", "/v1/playlists/playlist_abc/tracks")
+            .with_status(201)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"snapshot_id": "def456"}"#)
+            .expect(1)
+            .create_async()
+            .await;
+
+        let client = SpotifyClient::with_base_urls(
+            "client_id".to_string(),
+            "client_secret".to_string(),
+            server.url(),
+            server.url(),
+        );
+
+        client
+            .add_track_to_playlist(
+                "owner_token",
+                "playlist_abc",
+                "spotify:track:4iV5W9uYEdYUVa79Axb7Rh",
+            )
+            .await
+            .unwrap();
     }
 }
