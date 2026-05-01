@@ -2,7 +2,9 @@ use crate::error::{AppError, Result};
 use crate::events::{EventBroker, PlaylistEvent};
 use crate::model::playlist::Playlist;
 use crate::model::song::{Song, SongGql, TrackStatus};
-use crate::service::spotify::SpotifyClient;
+use crate::model::user::User;
+use crate::service::spotify::{SpotifyClient, get_valid_access_token};
+use crate::config::AppConfig;
 use chrono::Utc;
 use mongodb::{bson::doc, bson::oid::ObjectId, Client, Database, error::TRANSIENT_TRANSACTION_ERROR, options::TransactionOptions};
 use futures::StreamExt;
@@ -135,17 +137,19 @@ pub async fn next_unvoted(
 pub async fn vote_on_track(
     client: &Client,
     db: &Database,
-    track_id: ObjectId,
+    t_id: ObjectId,
     user_id: ObjectId,
     vote_type: VoteType,
     broker: &EventBroker,
+    spotify_client: &SpotifyClient,
+    config: &AppConfig,
 ) -> Result<Song> {
     let songs_coll = db.collection::<Song>("songs");
     let votes_coll = db.collection::<Vote>("votes");
     let playlists_coll = db.collection::<Playlist>("playlists");
 
     let song = songs_coll
-        .find_one(doc! { "_id": track_id })
+        .find_one(doc! { "_id": t_id })
         .await?
         .ok_or_else(|| AppError::NotFound("Track not found".to_string()))?;
 
@@ -161,13 +165,17 @@ pub async fn vote_on_track(
     let mut session = client.start_session().await.map_err(AppError::Database)?;
     let options = TransactionOptions::builder().build();
 
+    let spotify_client = spotify_client.clone();
+    let config = config.clone();
+    let db_bg = db.clone();
+
     let mut retries = 3;
     loop {
         session.start_transaction().with_options(options.clone()).await.map_err(AppError::Database)?;
 
         let vote = Vote {
             id: ObjectId::new(),
-            song_id: track_id,
+            song_id: t_id,
             playlist_id: song.playlist_id,
             user_id,
             vote: vote_type,
@@ -195,7 +203,7 @@ pub async fn vote_on_track(
         if vote_type == VoteType::Like {
             let update_result = songs_coll
                 .find_one_and_update(
-                    doc! { "_id": track_id },
+                    doc! { "_id": t_id },
                     doc! { "$inc": { "like_count": 1 } },
                 )
                 .return_document(mongodb::options::ReturnDocument::After)
@@ -224,7 +232,7 @@ pub async fn vote_on_track(
             if updated_song.like_count >= threshold {
                 let status_update = songs_coll
                     .update_one(
-                        doc! { "_id": track_id, "status": "Pending" },
+                        doc! { "_id": t_id, "status": "Pending" },
                         doc! { "$set": { "status": "Approved" } },
                     )
                     .session(&mut session)
@@ -234,11 +242,36 @@ pub async fn vote_on_track(
                     Ok(res) => {
                         if res.modified_count > 0 {
                             updated_song.status = TrackStatus::Approved;
-                            tracing::info!("Track {} approved!", track_id);
+                            tracing::info!("Track {} approved!", t_id);
                             broker.publish(
                                 updated_song.playlist_id,
                                 PlaylistEvent::TrackApproved(SongGql::from(updated_song.clone())),
                             );
+
+                            let approved_song = updated_song.clone();
+                            let approved_playlist = playlist.clone();
+                            let spotify_client_bg = spotify_client.clone();
+                            let config_bg = config.clone();
+                            let db_task = db_bg.clone();
+
+                            tokio::spawn(async move {
+                                if let Err(e) = sync_approved_track_to_spotify(
+                                    &db_task,
+                                    &spotify_client_bg,
+                                    &config_bg,
+                                    &approved_playlist,
+                                    &approved_song,
+                                )
+                                .await
+                                {
+                                    tracing::error!(
+                                        track_id = %approved_song.id,
+                                        playlist_id = %approved_playlist.id,
+                                        error = %e,
+                                        "Spotify playlist sync failed (vote still recorded)"
+                                    );
+                                }
+                            });
                         }
                     }
                     Err(e) => {
@@ -325,4 +358,70 @@ pub async fn propose_track(
         }
         Err(e) => Err(AppError::Database(e)),
     }
+}
+
+async fn sync_approved_track_to_spotify(
+    db: &Database,
+    spotify_client: &SpotifyClient,
+    config: &AppConfig,
+    playlist: &Playlist,
+    song: &Song,
+) -> crate::error::Result<()> {
+    let users_coll = db.collection::<User>("users");
+    let owner = users_coll
+        .find_one(doc! { "_id": playlist.owner_id })
+        .await?
+        .ok_or_else(|| AppError::NotFound("Playlist owner not found".to_string()))?;
+
+    let access_token = get_valid_access_token(&owner, spotify_client, db, config).await?;
+
+    let spotify_playlist_id = match &playlist.spotify_playlist_id {
+        Some(id) => id.clone(),
+        None => {
+            let description = format!(
+                "Collaborative playlist managed by Matchify — {}",
+                playlist.name
+            );
+
+            let new_id = spotify_client
+                .create_playlist(
+                    &access_token,
+                    &owner.spotify_id,
+                    &playlist.name,
+                    &description,
+                )
+                .await?;
+
+            let playlists_coll = db.collection::<Playlist>("playlists");
+            let now = mongodb::bson::DateTime::from_millis(chrono::Utc::now().timestamp_millis());
+            playlists_coll
+                .update_one(
+                    doc! { "_id": playlist.id },
+                    doc! { "$set": { "spotify_playlist_id": &new_id, "updated_at": now } },
+                )
+                .await?;
+
+            tracing::info!(
+                playlist_id = %playlist.id,
+                spotify_playlist_id = %new_id,
+                "Created Spotify playlist for matchify playlist"
+            );
+
+            new_id
+        }
+    };
+
+    let track_uri = format!("spotify:track:{}", song.spotify_track_id);
+    spotify_client
+        .add_track_to_playlist(&access_token, &spotify_playlist_id, &track_uri)
+        .await?;
+
+    tracing::info!(
+        song_id = %song.id,
+        spotify_track_id = %song.spotify_track_id,
+        spotify_playlist_id = %spotify_playlist_id,
+        "Track added to Spotify playlist"
+    );
+
+    Ok(())
 }
