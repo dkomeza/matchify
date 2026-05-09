@@ -25,7 +25,7 @@ type AddInitialTracksData = {
 }
 
 export default function SearchScreen() {
-  const { playlistId } = useLocalSearchParams<{ playlistId?: string }>()
+  const { id: playlistId } = useLocalSearchParams<{ id?: string }>()
   const navigation = useNavigation()
   const client = useClient()
   const [query, setQuery] = useState('')

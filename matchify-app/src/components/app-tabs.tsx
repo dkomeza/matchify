@@ -13,19 +13,6 @@ export default function AppTabs() {
         <NativeTabs.Trigger.Label>Home</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon sf={"music.house"} renderingMode="template" />
       </NativeTabs.Trigger>
-      <NativeTabs.Trigger name="vote">
-        <NativeTabs.Trigger.Label>Vote</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon
-          src={require("@/assets/images/tabIcons/home.png")}
-          renderingMode="template"
-        />
-      </NativeTabs.Trigger>
-
-      <NativeTabs.Trigger name="search">
-        <NativeTabs.Trigger.Label>Search</NativeTabs.Trigger.Label>
-        <NativeTabs.Trigger.Icon sf={"magnifyingglass"} renderingMode="template" />
-      </NativeTabs.Trigger>
-
       <NativeTabs.Trigger name="playlists">
         <NativeTabs.Trigger.Label>Playlists</NativeTabs.Trigger.Label>
         <NativeTabs.Trigger.Icon

@@ -50,8 +50,8 @@ const firstParam = (value: string | string[] | undefined) => {
 }
 
 export default function VoteScreen() {
-  const { playlistId: playlistIdParam, playlistName: playlistNameParam } = useLocalSearchParams<{
-    playlistId?: string | string[]
+  const { id: playlistIdParam, playlistName: playlistNameParam } = useLocalSearchParams<{
+    id?: string | string[]
     playlistName?: string | string[]
   }>()
   const playlistId = firstParam(playlistIdParam)

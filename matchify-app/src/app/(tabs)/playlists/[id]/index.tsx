@@ -172,12 +172,12 @@ export default function PlaylistDetailScreen() {
 
   const startVoting = () => {
     router.push(
-      `/(tabs)/vote?playlistId=${id}&playlistName=${encodeURIComponent(playlist?.name ?? "Vote")}`,
+      `/(tabs)/playlists/${id}/vote?playlistName=${encodeURIComponent(playlist?.name ?? "Vote")}`,
     );
   };
 
   const seedTracks = () => {
-    router.push(`/(tabs)/search?playlistId=${id}`);
+    router.push(`/(tabs)/playlists/${id}/search`);
   };
 
   const refresh = () => {
