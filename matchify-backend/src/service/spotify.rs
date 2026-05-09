@@ -165,7 +165,7 @@ impl SpotifyClient {
         limit: u32,
         access_token: &str,
     ) -> Result<Vec<SpotifyTrack>> {
-        let actual_limit = limit.min(50).max(1);
+        let actual_limit = limit.min(10).max(1);
         let url = format!("{}/v1/search", self.base_url_api);
         
         let response = self
