@@ -21,6 +21,7 @@ export const PLAYLIST_DETAIL_QUERY = gql`
     playlist(id: $id) {
       id
       name
+      ownerId
       inviteCode
       voteThreshold
       members {
@@ -36,6 +37,9 @@ export const PLAYLIST_DETAIL_QUERY = gql`
         durationMs
         likeCount
         createdAt
+      }
+      proposals {
+        id
       }
     }
   }
@@ -58,6 +62,21 @@ export const TRACK_APPROVED_SUBSCRIPTION = gql`
 export const ADD_INITIAL_TRACKS_MUTATION = gql`
   mutation AddInitialTracks($playlistId: String!, $spotifyTrackIds: [String!]!) {
     addInitialTracks(playlistId: $playlistId, spotifyTrackIds: $spotifyTrackIds) {
+      id
+      spotifyTrackId
+      title
+      artist
+      albumArtUrl
+      durationMs
+      likeCount
+      createdAt
+    }
+  }
+`
+
+export const PROPOSE_TRACK_MUTATION = gql`
+  mutation ProposeTrack($playlistId: ID!, $spotifyTrackId: String!) {
+    proposeTrack(playlistId: $playlistId, spotifyTrackId: $spotifyTrackId) {
       id
       spotifyTrackId
       title

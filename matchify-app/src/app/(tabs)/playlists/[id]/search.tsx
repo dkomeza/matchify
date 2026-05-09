@@ -10,7 +10,7 @@ import { ThemedText } from '@/components/themed-text'
 import { ThemedView } from '@/components/themed-view'
 import { TrackSearchRow, type TrackSearchRowTrack } from '@/components/track/track-search-row'
 import { Colors, Radius, ScreenPadding, Spacing } from '@/constants/theme'
-import { ADD_INITIAL_TRACKS_MUTATION, PLAYLIST_DETAIL_QUERY } from '@/lib/graphql/playlists'
+import { ADD_INITIAL_TRACKS_MUTATION, PLAYLIST_DETAIL_QUERY, PROPOSE_TRACK_MUTATION } from '@/lib/graphql/playlists'
 import { SEARCH_TRACKS_QUERY } from '@/lib/graphql/search'
 
 const SEARCH_LIMIT = 20
@@ -24,8 +24,12 @@ type AddInitialTracksData = {
   addInitialTracks: unknown[]
 }
 
+type ProposeTrackData = {
+  proposeTrack: unknown
+}
+
 export default function SearchScreen() {
-  const { id: playlistId } = useLocalSearchParams<{ id?: string }>()
+  const { id: playlistId, mode } = useLocalSearchParams<{ id?: string; mode?: string }>()
   const navigation = useNavigation()
   const client = useClient()
   const [query, setQuery] = useState('')
@@ -56,8 +60,11 @@ export default function SearchScreen() {
     pause: debouncedQuery.length === 0,
   })
   const [{ fetching: addingTracks }, addInitialTracks] = useMutation<AddInitialTracksData>(ADD_INITIAL_TRACKS_MUTATION)
+  const [{ fetching: proposingTrack }, proposeTrack] = useMutation<ProposeTrackData>(PROPOSE_TRACK_MUTATION)
 
   const tracks = data?.searchTracks ?? []
+  const isProposeMode = mode === 'propose'
+  const isSubmitting = addingTracks || proposingTrack
   const showInitialPrompt = trimmedQuery.length === 0
   const showSkeletons = fetching && !data && !showInitialPrompt
   const showNoResults = debouncedQuery.length > 0 && !fetching && !error && tracks.length === 0
@@ -73,7 +80,9 @@ export default function SearchScreen() {
 
     return order
   }, [selectedTrackIds])
-  const addButtonLabel = `Add ${selectedCount} ${selectedCount === 1 ? 'track' : 'tracks'}`
+  const addButtonLabel = isProposeMode
+    ? 'Propose track'
+    : `Add ${selectedCount} ${selectedCount === 1 ? 'track' : 'tracks'}`
 
   const toggleTrack = useCallback((track: TrackSearchRowTrack) => {
     setSelectedIds((current) => {
@@ -82,8 +91,12 @@ export default function SearchScreen() {
       if (next.has(track.spotifyTrackId)) {
         next.delete(track.spotifyTrackId)
       } else {
-        if (next.size >= MAX_SELECTED_TRACKS) {
+        if (next.size >= (isProposeMode ? 1 : MAX_SELECTED_TRACKS)) {
           return current
+        }
+
+        if (isProposeMode) {
+          next.clear()
         }
 
         next.add(track.spotifyTrackId)
@@ -91,18 +104,26 @@ export default function SearchScreen() {
 
       return next
     })
-  }, [])
+  }, [isProposeMode])
 
   const confirmAddTracks = useCallback(async () => {
-    if (!playlistId || selectedTrackIds.length === 0 || addingTracks) return
+    if (!playlistId || selectedTrackIds.length === 0 || isSubmitting) return
 
-    const result = await addInitialTracks({
-      playlistId,
-      spotifyTrackIds: selectedTrackIds,
-    })
+    const result = isProposeMode
+      ? await proposeTrack({
+          playlistId,
+          spotifyTrackId: selectedTrackIds[0],
+        })
+      : await addInitialTracks({
+          playlistId,
+          spotifyTrackIds: selectedTrackIds,
+        })
 
     if (result.error) {
-      Alert.alert('Tracks could not be added', 'Check your connection and try again.')
+      Alert.alert(
+        isProposeMode ? 'Track could not be proposed' : 'Tracks could not be added',
+        'Check your connection and try again.',
+      )
       return
     }
 
@@ -110,7 +131,7 @@ export default function SearchScreen() {
     completingAddRef.current = true
     setSelectedIds(new Set())
     router.back()
-  }, [addInitialTracks, addingTracks, client, playlistId, selectedTrackIds])
+  }, [addInitialTracks, client, isProposeMode, isSubmitting, playlistId, proposeTrack, selectedTrackIds])
 
   useEffect(() => {
     Animated.spring(actionBarProgress, {
@@ -190,7 +211,7 @@ export default function SearchScreen() {
             contentContainerStyle={listContentStyle}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
             ListEmptyComponent={
-              showInitialPrompt ? <SearchPrompt /> : showNoResults ? <NoResults /> : error ? <SearchError /> : null
+              showInitialPrompt ? <SearchPrompt isProposeMode={isProposeMode} /> : showNoResults ? <NoResults /> : error ? <SearchError /> : null
             }
           />
         )}
@@ -215,13 +236,13 @@ export default function SearchScreen() {
           >
             <Pressable
               accessibilityRole="button"
-              disabled={addingTracks || selectedCount === 0}
+              disabled={isSubmitting || selectedCount === 0}
               onPress={confirmAddTracks}
-              style={({ pressed }) => [styles.addButton, pressed && styles.pressed, addingTracks && styles.addButtonDisabled]}
+              style={({ pressed }) => [styles.addButton, pressed && styles.pressed, isSubmitting && styles.addButtonDisabled]}
             >
               <GlassView glassEffectStyle="clear" colorScheme="dark" style={styles.addPill}>
                 <ThemedText type="smallBold" style={styles.addLabel}>
-                  {addingTracks ? 'Adding...' : addButtonLabel}
+                  {isSubmitting ? (isProposeMode ? 'Proposing...' : 'Adding...') : addButtonLabel}
                 </ThemedText>
               </GlassView>
             </Pressable>
@@ -245,7 +266,7 @@ function TrackSearchSkeleton() {
   )
 }
 
-function SearchPrompt() {
+function SearchPrompt({ isProposeMode }: { isProposeMode: boolean }) {
   return (
     <View style={styles.centerState}>
       <View style={styles.promptIllustration}>
@@ -258,7 +279,9 @@ function SearchPrompt() {
         Search for tracks
       </ThemedText>
       <ThemedText type="small" themeColor="textSecondary" style={styles.centerCopy}>
-        Find songs to seed your next playlist proposal.
+        {isProposeMode
+          ? 'Find one song to propose for voting.'
+          : 'Find songs to seed your next playlist proposal.'}
       </ThemedText>
     </View>
   )

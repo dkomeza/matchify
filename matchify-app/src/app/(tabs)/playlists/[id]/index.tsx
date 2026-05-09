@@ -4,6 +4,7 @@ import { router, useLocalSearchParams } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -31,6 +32,7 @@ import {
   PLAYLIST_DETAIL_QUERY,
   TRACK_APPROVED_SUBSCRIPTION,
 } from "@/lib/graphql/playlists";
+import { useAuthStore } from "@/store/auth";
 import { useSubscriptionConnectionStatus } from "@/lib/subscription-status";
 
 type PlaylistTrack = TrackRowTrack & {
@@ -40,10 +42,12 @@ type PlaylistTrack = TrackRowTrack & {
 type PlaylistDetail = {
   id: string;
   name: string;
+  ownerId: string;
   inviteCode: string;
   voteThreshold: number;
   members: MemberAvatarMember[];
   tracks: PlaylistTrack[];
+  proposals: { id: string }[];
 };
 
 type PlaylistDetailData = {
@@ -76,10 +80,13 @@ const mergeTracks = (
 
 export default function PlaylistDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const userId = useAuthStore((state) => state.user?.id);
   const [copied, setCopied] = useState(false);
   const [liveTracks, setLiveTracks] = useState<PlaylistTrack[]>([]);
   const [newTrackIds, setNewTrackIds] = useState<Set<string>>(() => new Set());
   const [approvalToast, setApprovalToast] = useState<string | null>(null);
+  const [seedPromptPlaylistId, setSeedPromptPlaylistId] = useState<string | null>(null);
+  const [dismissedSeedPromptId, setDismissedSeedPromptId] = useState<string | null>(null);
   const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subscriptionStatus = useSubscriptionConnectionStatus();
@@ -134,12 +141,30 @@ export default function PlaylistDetailScreen() {
   );
   const isInitialLoading = fetching && !data;
   const isReconnecting = subscriptionStatus === "reconnecting";
+  const isPlaylistAdmin = Boolean(playlist && userId && playlist.ownerId === userId);
+  const isReadyForVoting = (playlist?.proposals.length ?? 0) > 0;
+  const showInactivePlaceholder = Boolean(playlist && !isPlaylistAdmin && !isReadyForVoting);
 
   useEffect(() => {
     setLiveTracks([]);
     setNewTrackIds(new Set());
     setApprovalToast(null);
+    setSeedPromptPlaylistId(null);
+    setDismissedSeedPromptId(null);
   }, [id]);
+
+  useEffect(() => {
+    if (!playlist) return;
+
+    if (!isPlaylistAdmin || isReadyForVoting) {
+      setSeedPromptPlaylistId(null);
+      return;
+    }
+
+    if (dismissedSeedPromptId !== playlist.id) {
+      setSeedPromptPlaylistId(playlist.id);
+    }
+  }, [dismissedSeedPromptId, isPlaylistAdmin, isReadyForVoting, playlist]);
 
   useEffect(
     () => () => {
@@ -176,8 +201,23 @@ export default function PlaylistDetailScreen() {
     );
   };
 
-  const seedTracks = () => {
+  const openSeedSearch = () => {
+    if (playlist) {
+      setDismissedSeedPromptId(playlist.id);
+    }
+    setSeedPromptPlaylistId(null);
     router.push(`/(tabs)/playlists/${id}/search`);
+  };
+
+  const dismissSeedPrompt = () => {
+    if (playlist) {
+      setDismissedSeedPromptId(playlist.id);
+    }
+    setSeedPromptPlaylistId(null);
+  };
+
+  const proposeTrack = () => {
+    router.push(`/(tabs)/playlists/${id}/search?mode=propose`);
   };
 
   const refresh = () => {
@@ -221,12 +261,16 @@ export default function PlaylistDetailScreen() {
             ListHeaderComponent={
               <PlaylistHeader
                 playlist={playlist}
+                isReadyForVoting={isReadyForVoting}
                 copied={copied}
                 onCopyInviteCode={copyInviteCode}
                 onStartVoting={startVoting}
+                onProposeTrack={proposeTrack}
               />
             }
-            ListEmptyComponent={<EmptyTracks />}
+            ListEmptyComponent={
+              showInactivePlaceholder ? <InactivePlaylist /> : <EmptyTracks />
+            }
             refreshing={fetching}
             onRefresh={refresh}
           />
@@ -254,21 +298,11 @@ export default function PlaylistDetailScreen() {
           </GlassView>
         )}
 
-        <Pressable
-          accessibilityRole="button"
-          onPress={seedTracks}
-          style={({ pressed }) => [styles.proposeFab, pressed && styles.pressed]}
-        >
-          <GlassView
-            glassEffectStyle="clear"
-            colorScheme="dark"
-            style={styles.proposePill}
-          >
-            <ThemedText type="smallBold" themeColor="brand">
-              Seed tracks
-            </ThemedText>
-          </GlassView>
-        </Pressable>
+        <SeedTracksPrompt
+          visible={Boolean(playlist && seedPromptPlaylistId === playlist.id)}
+          onSeedTracks={openSeedSearch}
+          onDismiss={dismissSeedPrompt}
+        />
       </SafeAreaView>
     </ThemedView>
   );
@@ -308,14 +342,18 @@ function ApprovedTrackRow({
 
 function PlaylistHeader({
   playlist,
+  isReadyForVoting,
   copied,
   onCopyInviteCode,
   onStartVoting,
+  onProposeTrack,
 }: {
   playlist: PlaylistDetail;
+  isReadyForVoting: boolean;
   copied: boolean;
   onCopyInviteCode: () => void;
   onStartVoting: () => void;
+  onProposeTrack: () => void;
 }) {
   return (
     <View style={styles.header}>
@@ -366,7 +404,24 @@ function PlaylistHeader({
         </ScrollView>
       </View>
 
-      <PrimaryButton onPress={onStartVoting}>Start Voting</PrimaryButton>
+      {isReadyForVoting ? (
+        <View style={styles.actions}>
+          <PrimaryButton onPress={onStartVoting}>Start Voting</PrimaryButton>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onProposeTrack}
+            style={({ pressed }) => pressed && styles.pressed}
+          >
+            <GlassView
+              glassEffectStyle="clear"
+              colorScheme="dark"
+              style={styles.secondaryAction}
+            >
+              <ThemedText type="smallBold">Propose a track</ThemedText>
+            </GlassView>
+          </Pressable>
+        </View>
+      ) : null}
 
       <ThemedText
         type="smallBold"
@@ -376,6 +431,55 @@ function PlaylistHeader({
         Approved Tracks
       </ThemedText>
     </View>
+  );
+}
+
+function SeedTracksPrompt({
+  visible,
+  onSeedTracks,
+  onDismiss,
+}: {
+  visible: boolean;
+  onSeedTracks: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <Modal
+      transparent
+      animationType="fade"
+      visible={visible}
+      onRequestClose={onDismiss}
+    >
+      <View style={styles.modalBackdrop}>
+        <GlassView
+          glassEffectStyle="regular"
+          colorScheme="dark"
+          style={styles.seedModal}
+        >
+          <ThemedText type="subtitle" style={styles.seedModalTitle}>
+            Not enough tracks yet
+          </ThemedText>
+          <ThemedText
+            type="small"
+            themeColor="textSecondary"
+            style={styles.seedModalCopy}
+          >
+            Not enough tracks have been added. Seed tracks to start voting in
+            this playlist.
+          </ThemedText>
+          <PrimaryButton onPress={onSeedTracks}>Search tracks</PrimaryButton>
+          <Pressable
+            accessibilityRole="button"
+            onPress={onDismiss}
+            style={({ pressed }) => [styles.modalDismiss, pressed && styles.pressed]}
+          >
+            <ThemedText type="smallBold" themeColor="textSecondary">
+              Not now
+            </ThemedText>
+          </Pressable>
+        </GlassView>
+      </View>
+    </Modal>
   );
 }
 
@@ -446,6 +550,21 @@ function EmptyTracks() {
   );
 }
 
+function InactivePlaylist() {
+  return (
+    <GlassView
+      glassEffectStyle="regular"
+      colorScheme="dark"
+      style={styles.emptyTracks}
+    >
+      <ThemedText type="smallBold">Playlist is not active yet</ThemedText>
+      <ThemedText type="small" themeColor="textSecondary">
+        The playlist owner still needs to add tracks before voting can begin.
+      </ThemedText>
+    </GlassView>
+  );
+}
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -507,6 +626,18 @@ const styles = StyleSheet.create({
     gap: Spacing.three,
     paddingRight: ScreenPadding,
   },
+  actions: {
+    gap: Spacing.three,
+  },
+  secondaryAction: {
+    minHeight: 48,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
   tracksTitle: {
     marginTop: Spacing.two,
     textTransform: "uppercase",
@@ -544,26 +675,35 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     backgroundColor: Colors.likeGlow,
   },
-  proposeFab: {
-    position: "absolute",
-    bottom: 96,
-    left: "50%",
-    transform: [{ translateX: "-50%" }],
-    borderRadius: Radius.full,
-  },
-  proposePill: {
-    minHeight: 52,
-    borderRadius: Radius.full,
-    paddingHorizontal: Spacing.four,
-    borderWidth: 1,
-    borderColor: Colors.glassBorder,
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
-  },
   pressed: {
     opacity: 0.78,
     transform: [{ scale: 0.99 }],
+  },
+  modalBackdrop: {
+    flex: 1,
+    justifyContent: "center",
+    padding: ScreenPadding,
+    backgroundColor: "rgba(0, 0, 0, 0.62)",
+  },
+  seedModal: {
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
+    padding: Spacing.four,
+    gap: Spacing.three,
+    overflow: "hidden",
+  },
+  seedModalTitle: {
+    textAlign: "center",
+  },
+  seedModalCopy: {
+    textAlign: "center",
+  },
+  modalDismiss: {
+    minHeight: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: Radius.full,
   },
   loadingWrap: {
     flex: 1,
