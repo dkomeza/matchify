@@ -9,6 +9,11 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useQuery, useSubscription } from "urql";
 
@@ -26,6 +31,7 @@ import {
   PLAYLIST_DETAIL_QUERY,
   TRACK_APPROVED_SUBSCRIPTION,
 } from "@/lib/graphql/playlists";
+import { useSubscriptionConnectionStatus } from "@/lib/subscription-status";
 
 type PlaylistTrack = TrackRowTrack & {
   createdAt?: string | null;
@@ -55,10 +61,28 @@ const byApprovalTime = (left: PlaylistTrack, right: PlaylistTrack) => {
   return leftTime - rightTime;
 };
 
+const mergeTracks = (
+  queryTracks: PlaylistTrack[],
+  liveTracks: PlaylistTrack[],
+) =>
+  Array.from(
+    [...queryTracks, ...liveTracks]
+      .reduce(
+        (tracksById, track) => tracksById.set(track.id, track),
+        new Map<string, PlaylistTrack>(),
+      )
+      .values(),
+  ).sort(byApprovalTime);
+
 export default function PlaylistDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const [copied, setCopied] = useState(false);
+  const [liveTracks, setLiveTracks] = useState<PlaylistTrack[]>([]);
+  const [newTrackIds, setNewTrackIds] = useState<Set<string>>(() => new Set());
+  const [approvalToast, setApprovalToast] = useState<string | null>(null);
   const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const subscriptionStatus = useSubscriptionConnectionStatus();
   const [{ data, fetching, error }, executeQuery] =
     useQuery<PlaylistDetailData>({
       query: PLAYLIST_DETAIL_QUERY,
@@ -70,12 +94,31 @@ export default function PlaylistDetailScreen() {
     {
       query: TRACK_APPROVED_SUBSCRIPTION,
       variables: { playlistId: id },
-      pause: true,
+      pause: !id,
     },
     (tracks = [], event) => {
       const approvedTrack = event.trackApproved;
 
       if (!approvedTrack) return tracks;
+
+      setLiveTracks((currentTracks) =>
+        mergeTracks(currentTracks, [approvedTrack]),
+      );
+      setNewTrackIds((currentIds) => {
+        const nextIds = new Set(currentIds);
+        nextIds.add(approvedTrack.id);
+        return nextIds;
+      });
+      setApprovalToast(`🎵 ${approvedTrack.title} was approved!`);
+
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+      }
+
+      toastTimeoutRef.current = setTimeout(() => {
+        setApprovalToast(null);
+        toastTimeoutRef.current = null;
+      }, 2800);
 
       return [
         ...tracks.filter((track) => track.id !== approvedTrack.id),
@@ -86,15 +129,25 @@ export default function PlaylistDetailScreen() {
 
   const playlist = data?.playlist;
   const tracks = useMemo(
-    () => [...(playlist?.tracks ?? [])].sort(byApprovalTime),
-    [playlist?.tracks],
+    () => mergeTracks(playlist?.tracks ?? [], liveTracks),
+    [liveTracks, playlist?.tracks],
   );
   const isInitialLoading = fetching && !data;
+  const isReconnecting = subscriptionStatus === "reconnecting";
+
+  useEffect(() => {
+    setLiveTracks([]);
+    setNewTrackIds(new Set());
+    setApprovalToast(null);
+  }, [id]);
 
   useEffect(
     () => () => {
       if (copiedTimeoutRef.current) {
         clearTimeout(copiedTimeoutRef.current);
+      }
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
       }
     },
     [],
@@ -143,7 +196,21 @@ export default function PlaylistDetailScreen() {
             testID="approved-tracks-list"
             data={tracks}
             keyExtractor={(item) => item.id}
-            renderItem={({ item }) => <TrackRow track={item} />}
+            renderItem={({ item }) => (
+              <ApprovedTrackRow
+                track={item}
+                isNew={newTrackIds.has(item.id)}
+                onAnimated={() => {
+                  setNewTrackIds((currentIds) => {
+                    if (!currentIds.has(item.id)) return currentIds;
+
+                    const nextIds = new Set(currentIds);
+                    nextIds.delete(item.id);
+                    return nextIds;
+                  });
+                }}
+              />
+            )}
             contentContainerStyle={[
               styles.listContent,
               tracks.length === 0 && styles.emptyListContent,
@@ -165,6 +232,28 @@ export default function PlaylistDetailScreen() {
           />
         )}
 
+        {isReconnecting && (
+          <GlassView
+            glassEffectStyle="regular"
+            colorScheme="dark"
+            style={styles.liveStatus}
+          >
+            <ThemedText type="micro" themeColor="textSecondary">
+              Reconnecting live updates...
+            </ThemedText>
+          </GlassView>
+        )}
+
+        {approvalToast && (
+          <GlassView
+            glassEffectStyle="regular"
+            colorScheme="dark"
+            style={styles.approvalToast}
+          >
+            <ThemedText type="smallBold">{approvalToast}</ThemedText>
+          </GlassView>
+        )}
+
         <Pressable
           accessibilityRole="button"
           onPress={seedTracks}
@@ -182,6 +271,38 @@ export default function PlaylistDetailScreen() {
         </Pressable>
       </SafeAreaView>
     </ThemedView>
+  );
+}
+
+function ApprovedTrackRow({
+  track,
+  isNew,
+  onAnimated,
+}: {
+  track: PlaylistTrack;
+  isNew: boolean;
+  onAnimated: () => void;
+}) {
+  const translateX = useSharedValue(isNew ? 32 : 0);
+  const opacity = useSharedValue(isNew ? 0 : 1);
+
+  useEffect(() => {
+    if (!isNew) return;
+
+    translateX.value = withSpring(0, { damping: 18, stiffness: 180 });
+    opacity.value = withSpring(1, { damping: 18, stiffness: 180 });
+    onAnimated();
+  }, [isNew, onAnimated, opacity, translateX]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+    transform: [{ translateX: translateX.value }],
+  }));
+
+  return (
+    <Animated.View style={animatedStyle}>
+      <TrackRow track={track} />
+    </Animated.View>
   );
 }
 
@@ -394,6 +515,34 @@ const styles = StyleSheet.create({
     height: Spacing.three,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.glassBorder,
+  },
+  liveStatus: {
+    position: "absolute",
+    top: 58,
+    alignSelf: "center",
+    minHeight: 32,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
+    paddingHorizontal: Spacing.three,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  approvalToast: {
+    position: "absolute",
+    left: ScreenPadding,
+    right: ScreenPadding,
+    bottom: 160,
+    minHeight: 48,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.like,
+    paddingHorizontal: Spacing.three,
+    paddingVertical: Spacing.three,
+    justifyContent: "center",
+    overflow: "hidden",
+    backgroundColor: Colors.likeGlow,
   },
   proposeFab: {
     position: "absolute",

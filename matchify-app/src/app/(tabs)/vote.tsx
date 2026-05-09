@@ -21,6 +21,7 @@ import {
   NEXT_PROPOSAL_QUERY,
   VOTE_ON_TRACK_MUTATION,
 } from '@/lib/graphql/vote'
+import { useSubscriptionConnectionStatus } from '@/lib/subscription-status'
 
 type VoteType = 'LIKE' | 'SKIP'
 
@@ -58,8 +59,10 @@ export default function VoteScreen() {
   const { width } = useWindowDimensions()
   const [votingTrackId, setVotingTrackId] = useState<string | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+  const [hasNewProposalBadge, setHasNewProposalBadge] = useState(false)
   const voteInFlightRef = useRef(false)
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const subscriptionStatus = useSubscriptionConnectionStatus()
   const cardTranslateX = useSharedValue(width + EXIT_OVERSHOOT)
   const cardOpacity = useSharedValue(0)
 
@@ -69,6 +72,7 @@ export default function VoteScreen() {
     pause: !playlistId,
   })
   const [, voteOnTrack] = useMutation<VoteOnTrackData, { trackId: string; vote: VoteType }>(VOTE_ON_TRACK_MUTATION)
+  const track = data?.nextProposal ?? null
 
   useSubscription<NewProposalData, NewProposalData | undefined, { playlistId?: string }>(
     {
@@ -78,14 +82,17 @@ export default function VoteScreen() {
     },
     (_previous, event) => {
       if (event?.newProposal) {
-        void executeQuery({ requestPolicy: 'network-only' })
+        setHasNewProposalBadge(true)
+
+        if (!track) {
+          void executeQuery({ requestPolicy: 'network-only' })
+        }
       }
 
       return event
     },
   )
 
-  const track = data?.nextProposal ?? null
   const trackId = track?.id
   const isInitialLoading = fetching && !data
   const isVoting = Boolean(votingTrackId)
@@ -136,6 +143,7 @@ export default function VoteScreen() {
   }
 
   const refreshNextProposal = () => {
+    setHasNewProposalBadge(false)
     void executeQuery({ requestPolicy: 'network-only' })
   }
 
@@ -165,6 +173,7 @@ export default function VoteScreen() {
 
     voteInFlightRef.current = false
     setVotingTrackId(null)
+    setHasNewProposalBadge(false)
     refreshNextProposal()
   }
 
@@ -175,9 +184,24 @@ export default function VoteScreen() {
           <ThemedText type="subtitle" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
             {playlistName}
           </ThemedText>
+          {subscriptionStatus === 'reconnecting' && (
+            <GlassView glassEffectStyle="regular" colorScheme="dark" style={styles.liveStatus}>
+              <ThemedText type="micro" themeColor="textSecondary">
+                Reconnecting live updates...
+              </ThemedText>
+            </GlassView>
+          )}
         </View>
 
         <View style={styles.content}>
+          {hasNewProposalBadge && (
+            <GlassView glassEffectStyle="regular" colorScheme="dark" style={styles.newProposalBadge}>
+              <ThemedText type="micro" themeColor="textSecondary">
+                New proposals available
+              </ThemedText>
+            </GlassView>
+          )}
+
           {isInitialLoading ? (
             <VoteCardSkeleton />
           ) : error ? (
@@ -286,6 +310,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: ScreenPadding,
     paddingTop: Spacing.three,
     paddingBottom: Spacing.two,
+    gap: Spacing.two,
   },
   content: {
     flex: 1,
@@ -298,6 +323,31 @@ const styles = StyleSheet.create({
   cardWrap: {
     width: '100%',
     alignItems: 'center',
+  },
+  liveStatus: {
+    alignSelf: 'flex-start',
+    minHeight: 30,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
+    paddingHorizontal: Spacing.three,
+  },
+  newProposalBadge: {
+    position: 'absolute',
+    top: Spacing.four,
+    alignSelf: 'center',
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
+    paddingHorizontal: Spacing.three,
+    backgroundColor: Colors.glassRaised,
   },
   actions: {
     flexDirection: 'row',

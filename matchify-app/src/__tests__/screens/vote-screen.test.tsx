@@ -6,6 +6,7 @@ import { withSpring } from 'react-native-reanimated'
 const mockUseQuery = jest.fn()
 const mockUseMutation = jest.fn()
 const mockUseSubscription = jest.fn()
+const mockUseSubscriptionConnectionStatus = jest.fn()
 
 jest.mock('expo-router', () => ({
   useLocalSearchParams: () => ({ playlistId: 'playlist-1', playlistName: 'Friday Room' }),
@@ -16,6 +17,10 @@ jest.mock('urql', () => ({
   useMutation: (query: unknown) => mockUseMutation(query),
   useQuery: (options: unknown) => mockUseQuery(options),
   useSubscription: (options: unknown, handler: unknown) => mockUseSubscription(options, handler),
+}))
+
+jest.mock('@/lib/subscription-status', () => ({
+  useSubscriptionConnectionStatus: () => mockUseSubscriptionConnectionStatus(),
 }))
 
 jest.mock('react-native-reanimated', () => {
@@ -95,6 +100,7 @@ describe('VoteScreen', () => {
     executeMutation.mockResolvedValue({ data: { voteOnTrack: { id: 'track-1', status: 'APPROVED', likeCount: 3 } } })
     mockUseMutation.mockReturnValue([{ fetching: false }, executeMutation])
     mockUseSubscription.mockReturnValue([{ data: undefined }])
+    mockUseSubscriptionConnectionStatus.mockReturnValue('connected')
   })
 
   it('queries the next proposal for the playlist route param and renders the card controls', () => {
@@ -176,11 +182,13 @@ describe('VoteScreen', () => {
     expect(mockWithSpring).toHaveBeenCalledWith(0, expect.any(Object))
   })
 
-  it('subscribes to new proposal events and refreshes the queue', () => {
+  it('subscribes to new proposal events and shows the available badge without replacing the active card', () => {
     render(<VoteScreen />)
 
     const [, handler] = mockUseSubscription.mock.calls[0]
-    handler(undefined, { newProposal: track })
+    act(() => {
+      handler(undefined, { newProposal: track })
+    })
 
     expect(mockUseSubscription).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -188,6 +196,27 @@ describe('VoteScreen', () => {
       }),
       expect.any(Function),
     )
+    expect(executeQuery).not.toHaveBeenCalled()
+  })
+
+  it('refreshes the next proposal when a new proposal arrives while empty', () => {
+    mockUseQuery.mockReturnValue([{ fetching: false, data: { nextProposal: null } }, executeQuery])
+
+    const { getByText } = render(<VoteScreen />)
+    const [, handler] = mockUseSubscription.mock.calls[0]
+    act(() => {
+      handler(undefined, { newProposal: track })
+    })
+
+    expect(getByText('New proposals available')).toBeTruthy()
     expect(executeQuery).toHaveBeenCalledWith({ requestPolicy: 'network-only' })
+  })
+
+  it('shows a reconnecting indicator while subscriptions recover', () => {
+    mockUseSubscriptionConnectionStatus.mockReturnValue('reconnecting')
+
+    const { getByText } = render(<VoteScreen />)
+
+    expect(getByText('Reconnecting live updates...')).toBeTruthy()
   })
 })

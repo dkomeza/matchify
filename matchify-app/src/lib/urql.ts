@@ -11,6 +11,7 @@ import {
 import { createClient as createSSEClient, type RequestParams } from 'graphql-sse'
 
 import { isAuthFailure } from '@/lib/auth-errors'
+import { setSubscriptionConnectionStatus } from '@/lib/subscription-status'
 import { useAuthStore } from '@/store/auth-store'
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL
@@ -74,6 +75,15 @@ export const authExchange = mapExchange({
 const sseClient = createSSEClient({
   url: `${API_URL}/graphql/ws`,
   headers: getAuthHeaders,
+  retryAttempts: Infinity,
+  on: {
+    connecting: (isRetry) => {
+      setSubscriptionConnectionStatus(isRetry ? 'reconnecting' : 'connecting')
+    },
+    connected: () => {
+      setSubscriptionConnectionStatus('connected')
+    },
+  },
 })
 
 const toSSERequest = (request: SubscriptionOperation): RequestParams => {
