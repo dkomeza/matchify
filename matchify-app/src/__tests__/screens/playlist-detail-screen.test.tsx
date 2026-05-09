@@ -1,12 +1,14 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 
-import { fireEvent, render } from '@testing-library/react-native'
+import { act, fireEvent, render } from '@testing-library/react-native'
+import { withSpring } from 'react-native-reanimated'
 
 const mockPush = jest.fn()
 const mockSetStringAsync = jest.fn()
 const mockSelectionAsync = jest.fn()
 const mockUseQuery = jest.fn()
 const mockUseSubscription = jest.fn()
+const mockUseSubscriptionConnectionStatus = jest.fn()
 
 jest.mock('expo-router', () => ({
   router: {
@@ -27,6 +29,24 @@ jest.mock('urql', () => ({
   gql: jest.fn((strings: TemplateStringsArray) => strings.join('')),
   useQuery: (options: unknown) => mockUseQuery(options),
   useSubscription: (options: unknown, handler: unknown) => mockUseSubscription(options, handler),
+}))
+
+jest.mock('react-native-reanimated', () => {
+  const { View } = require('react-native')
+
+  return {
+    __esModule: true,
+    default: {
+      View,
+    },
+    useAnimatedStyle: jest.fn((callback) => callback()),
+    useSharedValue: jest.fn((value) => ({ value })),
+    withSpring: jest.fn((value) => value),
+  }
+})
+
+jest.mock('@/lib/subscription-status', () => ({
+  useSubscriptionConnectionStatus: () => mockUseSubscriptionConnectionStatus(),
 }))
 
 jest.mock('@/components/glass-surface', () => {
@@ -76,6 +96,7 @@ beforeEach(() => {
   mockSelectionAsync.mockResolvedValue(undefined)
   mockUseQuery.mockReturnValue([{ fetching: false, data: { playlist } }, jest.fn()])
   mockUseSubscription.mockReturnValue([{ data: undefined }])
+  mockUseSubscriptionConnectionStatus.mockReturnValue('connected')
 })
 
 describe('PlaylistDetailScreen', () => {
@@ -123,8 +144,42 @@ describe('PlaylistDetailScreen', () => {
     expect(mockUseSubscription).toHaveBeenCalledWith(
       expect.objectContaining({
         variables: { playlistId: 'playlist-1' },
+        pause: false,
       }),
       expect.any(Function),
     )
+  })
+
+  it('appends approved tracks from subscription events and shows an approval toast', () => {
+    const { getByText, queryByText } = render(<PlaylistDetailScreen />)
+    const [, handler] = mockUseSubscription.mock.calls[0]
+
+    expect(queryByText('Live Track')).toBeNull()
+
+    act(() => {
+      handler(undefined, {
+        trackApproved: {
+          id: 'track-live',
+          title: 'Live Track',
+          artist: 'Live Artist',
+          albumArtUrl: 'https://example.com/live.jpg',
+          durationMs: 128000,
+          likeCount: 1,
+          createdAt: '2026-04-26T12:45:00Z',
+        },
+      })
+    })
+
+    expect(getByText('Live Track')).toBeTruthy()
+    expect(getByText('🎵 Live Track was approved!')).toBeTruthy()
+    expect(withSpring).toHaveBeenCalledWith(0, expect.any(Object))
+  })
+
+  it('shows a reconnecting indicator while subscriptions recover', () => {
+    mockUseSubscriptionConnectionStatus.mockReturnValue('reconnecting')
+
+    const { getByText } = render(<PlaylistDetailScreen />)
+
+    expect(getByText('Reconnecting live updates...')).toBeTruthy()
   })
 })
