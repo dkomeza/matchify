@@ -279,7 +279,7 @@ export default function SearchScreen() {
       <Stack.Screen
         options={{
           headerShown: true,
-          headerBackTitle: "",
+          headerBackTitle: "Back",
           headerStyle: { backgroundColor: Colors.background },
           headerTintColor: Colors.text,
           headerShadowVisible: false,
