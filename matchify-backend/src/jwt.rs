@@ -52,6 +52,20 @@ pub struct AuthUser {
     pub user_id: String,
 }
 
+pub fn auth_user_from_authorization_value(
+    authorization_value: &str,
+    secret: &str,
+) -> crate::error::Result<AuthUser> {
+    let token = authorization_value
+        .strip_prefix("Bearer ")
+        .ok_or_else(|| crate::error::AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+    let claims = verify(token, secret)?;
+
+    Ok(AuthUser {
+        user_id: claims.sub,
+    })
+}
+
 pub struct OptionalAuthUser(pub Option<AuthUser>);
 
 impl<S> FromRequestParts<S> for AuthUser
@@ -102,10 +116,8 @@ where
             ));
         };
 
-        match verify(token, &secret) {
-            Ok(claims) => Ok(OptionalAuthUser(Some(AuthUser {
-                user_id: claims.sub,
-            }))),
+        match auth_user_from_authorization_value(&format!("Bearer {token}"), &secret) {
+            Ok(auth_user) => Ok(OptionalAuthUser(Some(auth_user))),
             Err(e) => Err((StatusCode::UNAUTHORIZED, format!("Invalid token: {}", e))),
         }
     }
@@ -113,7 +125,7 @@ where
 
 #[cfg(test)]
 mod tests {
-    use super::{sign, verify};
+    use super::{auth_user_from_authorization_value, sign, verify};
     use mongodb::bson::oid::ObjectId;
 
     #[test]
@@ -125,5 +137,17 @@ mod tests {
         let claims = verify(&token, &secret).expect("jwt should verify");
 
         assert_eq!(claims.sub, user_id.to_hex());
+    }
+
+    #[test]
+    fn creates_auth_user_from_bearer_authorization_value() {
+        let user_id = ObjectId::new();
+        let secret = "a".repeat(32);
+        let token = sign(&user_id, &secret, 7).expect("jwt should sign");
+
+        let auth_user = auth_user_from_authorization_value(&format!("Bearer {token}"), &secret)
+            .expect("authorization header should authenticate");
+
+        assert_eq!(auth_user.user_id, user_id.to_hex());
     }
 }

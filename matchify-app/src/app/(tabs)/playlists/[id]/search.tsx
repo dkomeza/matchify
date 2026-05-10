@@ -12,6 +12,7 @@ import { TrackSearchRow, type TrackSearchRowTrack } from '@/components/track/tra
 import { Colors, Radius, ScreenPadding, Spacing } from '@/constants/theme'
 import { ADD_INITIAL_TRACKS_MUTATION, PLAYLIST_DETAIL_QUERY, PROPOSE_TRACK_MUTATION } from '@/lib/graphql/playlists'
 import { SEARCH_TRACKS_QUERY } from '@/lib/graphql/search'
+import { useAuthStore } from '@/store/auth-store'
 
 const SEARCH_LIMIT = 20
 const MAX_SELECTED_TRACKS = 50
@@ -28,10 +29,46 @@ type ProposeTrackData = {
   proposeTrack: unknown
 }
 
+type SearchPlaylistData = {
+  playlist: {
+    id: string
+    ownerId: string
+  } | null
+}
+
+const mutationErrorMessage = (message: string, isProposeMode: boolean) => {
+  if (message.includes('Only the playlist owner can add initial tracks')) {
+    return {
+      title: 'Only the owner can seed tracks',
+      body: 'Use propose mode to suggest this track for voting.',
+    }
+  }
+
+  if (message.includes('Track already proposed')) {
+    return {
+      title: 'Track is already in this playlist',
+      body: 'Pick another track to propose.',
+    }
+  }
+
+  if (message.includes('UNAUTHENTICATED')) {
+    return {
+      title: 'Session expired',
+      body: 'Log in again and retry.',
+    }
+  }
+
+  return {
+    title: isProposeMode ? 'Track could not be proposed' : 'Tracks could not be added',
+    body: message || 'Check your connection and try again.',
+  }
+}
+
 export default function SearchScreen() {
   const { id: playlistId, mode } = useLocalSearchParams<{ id?: string; mode?: string }>()
   const navigation = useNavigation()
   const client = useClient()
+  const userId = useAuthStore((state) => state.user?.id)
   const [query, setQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
@@ -59,12 +96,19 @@ export default function SearchScreen() {
     variables: { query: debouncedQuery, limit: SEARCH_LIMIT },
     pause: debouncedQuery.length === 0,
   })
+  const [{ data: playlistData }] = useQuery<SearchPlaylistData>({
+    query: PLAYLIST_DETAIL_QUERY,
+    variables: { id: playlistId ?? '' },
+    pause: !playlistId,
+  })
   const [{ fetching: addingTracks }, addInitialTracks] = useMutation<AddInitialTracksData>(ADD_INITIAL_TRACKS_MUTATION)
   const [{ fetching: proposingTrack }, proposeTrack] = useMutation<ProposeTrackData>(PROPOSE_TRACK_MUTATION)
 
   const tracks = data?.searchTracks ?? []
-  const isProposeMode = mode === 'propose'
-  const isSubmitting = addingTracks || proposingTrack
+  const isPlaylistOwner = Boolean(playlistData?.playlist && userId && playlistData.playlist.ownerId === userId)
+  const isProposeMode = mode === 'propose' || Boolean(playlistData?.playlist && userId && !isPlaylistOwner)
+  const isResolvingPlaylistMode = Boolean(playlistId && mode !== 'propose' && (!playlistData?.playlist || !userId))
+  const isSubmitting = addingTracks || proposingTrack || isResolvingPlaylistMode
   const showInitialPrompt = trimmedQuery.length === 0
   const showSkeletons = fetching && !data && !showInitialPrompt
   const showNoResults = debouncedQuery.length > 0 && !fetching && !error && tracks.length === 0
@@ -120,10 +164,8 @@ export default function SearchScreen() {
         })
 
     if (result.error) {
-      Alert.alert(
-        isProposeMode ? 'Track could not be proposed' : 'Tracks could not be added',
-        'Check your connection and try again.',
-      )
+      const { title, body } = mutationErrorMessage(result.error.message, isProposeMode)
+      Alert.alert(title, body)
       return
     }
 

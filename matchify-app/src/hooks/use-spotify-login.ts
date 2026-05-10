@@ -64,7 +64,7 @@ export function useSpotifyLogin() {
   const [request, response, promptAsync] = AuthSession.useAuthRequest(
     {
       clientId: CLIENT_ID!,
-      scopes: ['user-read-email', 'playlist-modify-public', 'playlist-modify-private'],
+      scopes: ['user-read-email', 'user-read-private', 'playlist-modify-public', 'playlist-modify-private'],
       redirectUri,
       responseType: AuthSession.ResponseType.Code,
       usePKCE: false,

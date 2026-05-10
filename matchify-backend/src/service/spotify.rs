@@ -1,14 +1,14 @@
 use crate::config::AppConfig;
 use crate::crypto::{decrypt_token, encrypt_token};
 use crate::error::{AppError, Result};
+use crate::model::spotify::SpotifyTrack;
 use crate::model::spotify::{SpotifyProfile, SpotifyTokens};
 use crate::model::user::User;
 use chrono::{Duration, Utc};
-use mongodb::bson::doc;
 use mongodb::Database;
+use mongodb::bson::doc;
 use reqwest::Client;
 use std::collections::HashMap;
-use crate::model::spotify::SpotifyTrack;
 
 #[derive(serde::Deserialize)]
 struct SpotifySearchResponse {
@@ -167,11 +167,15 @@ impl SpotifyClient {
     ) -> Result<Vec<SpotifyTrack>> {
         let actual_limit = limit.min(10).max(1);
         let url = format!("{}/v1/search", self.base_url_api);
-        
+
         let response = self
             .client
             .get(&url)
-            .query(&[("q", query), ("type", "track"), ("limit", &actual_limit.to_string())])
+            .query(&[
+                ("q", query),
+                ("type", "track"),
+                ("limit", &actual_limit.to_string()),
+            ])
             .bearer_auth(access_token)
             .send()
             .await?;
@@ -186,21 +190,36 @@ impl SpotifyClient {
         }
 
         let search_response = response.json::<SpotifySearchResponse>().await?;
-        
-        let tracks = search_response.tracks.items.into_iter().map(|item| {
-            let artist_str = item.artists.into_iter().map(|a| a.name).collect::<Vec<_>>().join(", ");
-            let album_art_url = item.album.images.first().map(|img| img.url.clone()).unwrap_or_default();
-            
-            SpotifyTrack {
-                spotify_track_id: item.id,
-                title: item.name,
-                artist: artist_str,
-                album: item.album.name,
-                album_art_url,
-                preview_url: item.preview_url,
-                duration_ms: item.duration_ms,
-            }
-        }).collect();
+
+        let tracks = search_response
+            .tracks
+            .items
+            .into_iter()
+            .map(|item| {
+                let artist_str = item
+                    .artists
+                    .into_iter()
+                    .map(|a| a.name)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let album_art_url = item
+                    .album
+                    .images
+                    .first()
+                    .map(|img| img.url.clone())
+                    .unwrap_or_default();
+
+                SpotifyTrack {
+                    spotify_track_id: item.id,
+                    title: item.name,
+                    artist: artist_str,
+                    album: item.album.name,
+                    album_art_url,
+                    preview_url: item.preview_url,
+                    duration_ms: item.duration_ms,
+                }
+            })
+            .collect();
 
         Ok(tracks)
     }
@@ -214,49 +233,49 @@ impl SpotifyClient {
             return Ok(Vec::new());
         }
 
-        let ids_str = track_ids.iter().take(50).cloned().collect::<Vec<_>>().join(",");
-        let url = format!("{}/v1/tracks", self.base_url_api);
-        
-        let response = self
-            .client
-            .get(&url)
-            .query(&[("ids", &ids_str)])
-            .bearer_auth(access_token)
-            .send()
-            .await?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(AppError::SpotifyAuth(format!(
-                "Failed to fetch tracks ({}): {}",
-                status, error_text
-            )));
-        }
-
-        #[derive(serde::Deserialize)]
-        struct SpotifyTracksResp {
-            tracks: Vec<Option<crate::service::spotify::SpotifySearchItem>>,
-        }
-
-        let body = response.json::<SpotifyTracksResp>().await?;
-        
         let mut tracks = Vec::new();
-        for item_opt in body.tracks {
-            if let Some(item) = item_opt {
-                let artist_str = item.artists.into_iter().map(|a| a.name).collect::<Vec<_>>().join(", ");
-                let album_art_url = item.album.images.first().map(|img| img.url.clone()).unwrap_or_default();
-                
-                tracks.push(SpotifyTrack {
-                    spotify_track_id: item.id,
-                    title: item.name,
-                    artist: artist_str,
-                    album: item.album.name,
-                    album_art_url,
-                    preview_url: item.preview_url,
-                    duration_ms: item.duration_ms,
-                });
+        for track_id in track_ids.iter().take(50) {
+            let url = format!("{}/v1/tracks/{}", self.base_url_api, track_id);
+
+            let response = self
+                .client
+                .get(&url)
+                .bearer_auth(access_token)
+                .send()
+                .await?;
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let error_text = response.text().await.unwrap_or_default();
+                return Err(AppError::SpotifyAuth(format!(
+                    "Failed to fetch track {} ({}): {}",
+                    track_id, status, error_text
+                )));
             }
+
+            let item = response.json::<SpotifySearchItem>().await?;
+            let artist_str = item
+                .artists
+                .into_iter()
+                .map(|a| a.name)
+                .collect::<Vec<_>>()
+                .join(", ");
+            let album_art_url = item
+                .album
+                .images
+                .first()
+                .map(|img| img.url.clone())
+                .unwrap_or_default();
+
+            tracks.push(SpotifyTrack {
+                spotify_track_id: item.id,
+                title: item.name,
+                artist: artist_str,
+                album: item.album.name,
+                album_art_url,
+                preview_url: item.preview_url,
+                duration_ms: item.duration_ms,
+            });
         }
 
         Ok(tracks)
@@ -269,7 +288,10 @@ impl SpotifyClient {
         name: &str,
         description: &str,
     ) -> Result<String> {
-        let url = format!("{}/v1/users/{}/playlists", self.base_url_api, owner_spotify_id);
+        let url = format!(
+            "{}/v1/users/{}/playlists",
+            self.base_url_api, owner_spotify_id
+        );
 
         let body = serde_json::json!({
             "name": name,
@@ -357,7 +379,6 @@ impl SpotifyClient {
     }
 }
 
-
 pub async fn get_valid_access_token(
     user: &User,
     client: &SpotifyClient,
@@ -373,9 +394,9 @@ pub async fn get_valid_access_token(
     let new_tokens = client.refresh_token(&decrypted_refresh).await?;
 
     let new_decrypted_access = new_tokens.access_token;
-    
+
     let encrypted_access = encrypt_token(&new_decrypted_access, &config.encryption_key)?;
-    
+
     let (encrypted_refresh, is_new_refresh) = match new_tokens.refresh_token {
         Some(rt) => (encrypt_token(&rt, &config.encryption_key)?, true),
         None => (user.refresh_token.clone(), false),
@@ -383,7 +404,7 @@ pub async fn get_valid_access_token(
 
     let new_expires_at = Utc::now() + Duration::seconds(new_tokens.expires_in as i64);
     let collection = db.collection::<User>("users");
-    
+
     let mut update_doc = doc! {
         "access_token": encrypted_access,
         "token_expires_at": mongodb::bson::DateTime::from_millis(new_expires_at.timestamp_millis())
@@ -394,10 +415,7 @@ pub async fn get_valid_access_token(
     }
 
     collection
-        .update_one(
-            doc! { "_id": user.id },
-            doc! { "$set": update_doc }
-        )
+        .update_one(doc! { "_id": user.id }, doc! { "$set": update_doc })
         .await?;
 
     Ok(new_decrypted_access)
@@ -412,7 +430,7 @@ mod tests {
     #[tokio::test]
     async fn test_exchange_code_success() {
         let mut server = Server::new_async().await;
-        
+
         let mock_response = r#"{
             "access_token": "mock_access_token",
             "token_type": "Bearer",
@@ -436,7 +454,10 @@ mod tests {
             server.url(), // API URL, but not used here
         );
 
-        let tokens = client.exchange_code("auth_code", "http://localhost/callback").await.unwrap();
+        let tokens = client
+            .exchange_code("auth_code", "http://localhost/callback")
+            .await
+            .unwrap();
         assert_eq!(tokens.access_token, "mock_access_token");
         assert_eq!(tokens.refresh_token.unwrap(), "mock_refresh_token");
         assert_eq!(tokens.expires_in, 3600);
@@ -447,7 +468,7 @@ mod tests {
     #[tokio::test]
     async fn test_exchange_code_failure() {
         let mut server = Server::new_async().await;
-        
+
         let mock = server
             .mock("POST", "/api/token")
             .with_status(400)
@@ -462,7 +483,10 @@ mod tests {
             server.url(),
         );
 
-        let error = client.exchange_code("auth_code", "http://localhost/callback").await.unwrap_err();
+        let error = client
+            .exchange_code("auth_code", "http://localhost/callback")
+            .await
+            .unwrap_err();
         match error {
             AppError::SpotifyAuth(msg) => {
                 assert!(msg.contains("invalid_grant"));
@@ -476,7 +500,7 @@ mod tests {
     #[tokio::test]
     async fn test_refresh_token_success() {
         let mut server = Server::new_async().await;
-        
+
         let mock_response = r#"{
             "access_token": "new_mock_access_token",
             "token_type": "Bearer",
@@ -510,7 +534,7 @@ mod tests {
     #[tokio::test]
     async fn test_get_user_profile_success() {
         let mut server = Server::new_async().await;
-        
+
         let mock_response = r#"{
             "id": "mock_user_id",
             "display_name": "Mock User",
@@ -548,6 +572,76 @@ mod tests {
         assert_eq!(profile.images[0].url, "https://example.com/image.jpg");
 
         mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn test_get_tracks_fetches_each_track_by_id() {
+        let mut server = Server::new_async().await;
+
+        let track_a = r#"{
+            "id": "track_a",
+            "name": "Track A",
+            "artists": [{ "name": "Artist A" }],
+            "album": {
+                "name": "Album A",
+                "images": [{ "url": "https://example.com/a.jpg", "height": 640, "width": 640 }]
+            },
+            "preview_url": "https://example.com/a.mp3",
+            "duration_ms": 180000
+        }"#;
+        let track_b = r#"{
+            "id": "track_b",
+            "name": "Track B",
+            "artists": [{ "name": "Artist B" }],
+            "album": {
+                "name": "Album B",
+                "images": []
+            },
+            "preview_url": null,
+            "duration_ms": 210000
+        }"#;
+
+        let mock_a = server
+            .mock("GET", "/v1/tracks/track_a")
+            .match_header("authorization", "Bearer mock_access_token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(track_a)
+            .create_async()
+            .await;
+        let mock_b = server
+            .mock("GET", "/v1/tracks/track_b")
+            .match_header("authorization", "Bearer mock_access_token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(track_b)
+            .create_async()
+            .await;
+
+        let client = SpotifyClient::with_base_urls(
+            "client_id".to_string(),
+            "client_secret".to_string(),
+            server.url(),
+            server.url(),
+        );
+
+        let tracks = client
+            .get_tracks(
+                &["track_a".to_string(), "track_b".to_string()],
+                "mock_access_token",
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(tracks.len(), 2);
+        assert_eq!(tracks[0].spotify_track_id, "track_a");
+        assert_eq!(tracks[0].title, "Track A");
+        assert_eq!(tracks[0].album_art_url, "https://example.com/a.jpg");
+        assert_eq!(tracks[1].spotify_track_id, "track_b");
+        assert_eq!(tracks[1].album_art_url, "");
+
+        mock_a.assert_async().await;
+        mock_b.assert_async().await;
     }
 
     #[tokio::test]

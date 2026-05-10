@@ -20,6 +20,10 @@ if (!API_URL) {
   throw new Error('EXPO_PUBLIC_API_URL is not set in .env.local')
 }
 
+const apiBaseUrl = API_URL.replace(/\/$/, '')
+const graphqlUrl = `${apiBaseUrl}/graphql`
+const graphqlSubscriptionUrl = `${apiBaseUrl}/graphql/ws`
+
 const getAuthHeaders = (): Record<string, string> => {
   const token = useAuthStore.getState().token
 
@@ -73,7 +77,7 @@ export const authExchange = mapExchange({
 })
 
 const sseClient = createSSEClient({
-  url: `${API_URL}/graphql/ws`,
+  url: graphqlSubscriptionUrl,
   headers: getAuthHeaders,
   retryAttempts: Infinity,
   on: {
@@ -100,7 +104,7 @@ const toSSERequest = (request: SubscriptionOperation): RequestParams => {
 }
 
 export const urqlClientOptions = {
-  url: `${API_URL}/graphql`,
+  url: graphqlUrl,
   preferGetMethod: false,
   exchanges: [
     cacheExchange,

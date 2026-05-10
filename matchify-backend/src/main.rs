@@ -8,10 +8,39 @@ pub mod jwt;
 pub mod model;
 pub mod service;
 
-use async_graphql_axum::{GraphQLRequest, GraphQLResponse, GraphQLSubscription};
-use axum::routing::post;
+use async_graphql_axum::{GraphQLRequest, GraphQLResponse};
 use axum::Router;
+use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::routing::post;
+use futures::{Stream, StreamExt, stream};
+use std::{convert::Infallible, time::Duration};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+fn graphql_sse_response(
+    optional_auth: jwt::OptionalAuthUser,
+    schema: graphql::AppSchema,
+    req: GraphQLRequest,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let mut request = req.into_inner();
+    if let Some(user) = optional_auth.0 {
+        request = request.data(user);
+    }
+
+    let events = schema
+        .execute_stream(request)
+        .map(|response| {
+            let data = serde_json::to_string(&response).unwrap_or_else(|_| {
+                r#"{"errors":[{"message":"Failed to serialize GraphQL response"}]}"#.to_string()
+            });
+
+            Ok(Event::default().event("next").data(data))
+        })
+        .chain(stream::once(async {
+            Ok(Event::default().event("complete"))
+        }));
+
+    Sse::new(events).keep_alive(KeepAlive::new().interval(Duration::from_secs(15)))
+}
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -57,20 +86,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let app = Router::new()
         .route(
             "/graphql",
-            post(move |optional_auth: jwt::OptionalAuthUser, req: GraphQLRequest| {
-                let schema = schema_clone1.clone();
-                async move {
-                    let mut req = req.into_inner();
-                    if let Some(user) = optional_auth.0 {
-                        req = req.data(user);
+            post(
+                move |optional_auth: jwt::OptionalAuthUser, req: GraphQLRequest| {
+                    let schema = schema_clone1.clone();
+                    async move {
+                        let mut req = req.into_inner();
+                        if let Some(user) = optional_auth.0 {
+                            req = req.data(user);
+                        }
+                        GraphQLResponse::from(schema.execute(req).await)
                     }
-                    GraphQLResponse::from(schema.execute(req).await)
-                }
-            }),
+                },
+            ),
         )
         .route(
             "/graphql/ws",
-            axum::routing::any_service(GraphQLSubscription::new(schema_clone2)),
+            post(
+                move |optional_auth: jwt::OptionalAuthUser, req: GraphQLRequest| {
+                    let schema = schema_clone2.clone();
+
+                    async move { graphql_sse_response(optional_auth, schema, req) }
+                },
+            ),
         )
         .layer(
             tower_http::cors::CorsLayer::new()
