@@ -1,4 +1,4 @@
-use async_graphql::{Context, Object, Result as GraphqlResult};
+use async_graphql::{Context, Enum, Object, Result as GraphqlResult};
 use chrono::{DateTime, Utc};
 use futures::TryStreamExt;
 use mongodb::{
@@ -12,6 +12,35 @@ use crate::{
     model::song::{Song, SongGql},
     model::user::User,
 };
+
+const PLAYLIST_SEED_SONG_TARGET: i32 = 5;
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Enum)]
+pub enum PlaylistState {
+    Seeding,
+    Active,
+}
+
+pub fn playlist_state_for_song_count(song_count: i32) -> PlaylistState {
+    if song_count < PLAYLIST_SEED_SONG_TARGET {
+        PlaylistState::Seeding
+    } else {
+        PlaylistState::Active
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn playlist_state_is_seeding_until_enough_approved_or_pending_songs_exist() {
+        assert_eq!(playlist_state_for_song_count(0), PlaylistState::Seeding);
+        assert_eq!(playlist_state_for_song_count(4), PlaylistState::Seeding);
+        assert_eq!(playlist_state_for_song_count(5), PlaylistState::Active);
+        assert_eq!(playlist_state_for_song_count(6), PlaylistState::Active);
+    }
+}
 
 // ---------------------------------------------------------------------------
 // MongoDB document
@@ -78,6 +107,21 @@ impl PlaylistGql {
 
     async fn vote_threshold(&self) -> i32 {
         self.0.vote_threshold
+    }
+
+    async fn state(&self, ctx: &Context<'_>) -> GraphqlResult<PlaylistState> {
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+        let collection = db.collection::<Song>("songs");
+
+        let song_count = collection
+            .count_documents(doc! {
+                "playlist_id": self.0.id,
+                "status": { "$in": ["Approved", "Pending"] },
+            })
+            .await
+            .map_err(AppError::Database)? as i32;
+
+        Ok(playlist_state_for_song_count(song_count))
     }
 
     async fn spotify_playlist_id(&self) -> Option<&str> {

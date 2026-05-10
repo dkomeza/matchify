@@ -24,6 +24,7 @@ export const PLAYLIST_DETAIL_QUERY = gql`
       ownerId
       inviteCode
       voteThreshold
+      state
       members {
         id
         displayName

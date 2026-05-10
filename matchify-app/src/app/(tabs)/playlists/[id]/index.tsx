@@ -45,6 +45,7 @@ type PlaylistDetail = {
   ownerId: string;
   inviteCode: string;
   voteThreshold: number;
+  state: "SEEDING" | "ACTIVE";
   members: MemberAvatarMember[];
   tracks: PlaylistTrack[];
   proposals: { id: string }[];
@@ -142,8 +143,9 @@ export default function PlaylistDetailScreen() {
   const isInitialLoading = fetching && !data;
   const isReconnecting = subscriptionStatus === "reconnecting";
   const isPlaylistAdmin = Boolean(playlist && userId && playlist.ownerId === userId);
+  const isSeeding = playlist?.state === "SEEDING";
   const isReadyForVoting = (playlist?.proposals.length ?? 0) > 0;
-  const showInactivePlaceholder = Boolean(playlist && !isPlaylistAdmin && !isReadyForVoting);
+  const showInactivePlaceholder = Boolean(playlist && !isPlaylistAdmin && isSeeding);
 
   useEffect(() => {
     setLiveTracks([]);
@@ -156,7 +158,7 @@ export default function PlaylistDetailScreen() {
   useEffect(() => {
     if (!playlist) return;
 
-    if (!isPlaylistAdmin || isReadyForVoting) {
+    if (!isPlaylistAdmin || !isSeeding) {
       setSeedPromptPlaylistId(null);
       return;
     }
@@ -164,7 +166,7 @@ export default function PlaylistDetailScreen() {
     if (dismissedSeedPromptId !== playlist.id) {
       setSeedPromptPlaylistId(playlist.id);
     }
-  }, [dismissedSeedPromptId, isPlaylistAdmin, isReadyForVoting, playlist]);
+  }, [dismissedSeedPromptId, isPlaylistAdmin, isSeeding, playlist]);
 
   useEffect(
     () => () => {
