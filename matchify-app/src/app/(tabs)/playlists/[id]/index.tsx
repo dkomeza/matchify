@@ -26,6 +26,7 @@ import {
 import { ThemedText } from "@/components/themed-text";
 import { ThemedView } from "@/components/themed-view";
 import { TrackRow, type TrackRowTrack } from "@/components/track/track-row";
+import { BackButton } from "@/components/ui/back-button";
 import { PrimaryButton } from "@/components/ui/primary-button";
 import { Colors, Radius, ScreenPadding, Spacing } from "@/constants/theme";
 import {
@@ -360,6 +361,7 @@ function PlaylistHeader({
   return (
     <View style={styles.header}>
       <View style={styles.titleRow}>
+        <BackButton />
         <ThemedText type="title" numberOfLines={2} style={styles.title}>
           {playlist.name}
         </ThemedText>
@@ -589,8 +591,8 @@ const styles = StyleSheet.create({
   },
   titleRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: Spacing.three,
+    alignItems: "center",
+    gap: Spacing.two,
   },
   title: {
     flex: 1,

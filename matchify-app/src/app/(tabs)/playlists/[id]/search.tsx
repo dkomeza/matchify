@@ -1,157 +1,198 @@
-import { router, useLocalSearchParams, useNavigation } from 'expo-router'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Animated, FlatList, Pressable, StyleSheet, View } from 'react-native'
-import { SafeAreaView } from 'react-native-safe-area-context'
-import { useClient, useMutation, useQuery } from 'urql'
+import {
+  router,
+  Stack,
+  useLocalSearchParams,
+  useNavigation,
+} from "expo-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Alert,
+  Animated,
+  FlatList,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { useClient, useMutation, useQuery } from "urql";
 
-import { GlassView } from '@/components/glass-view'
-import { GlassInput } from '@/components/ui/glass-input'
-import { ThemedText } from '@/components/themed-text'
-import { ThemedView } from '@/components/themed-view'
-import { TrackSearchRow, type TrackSearchRowTrack } from '@/components/track/track-search-row'
-import { Colors, Radius, ScreenPadding, Spacing } from '@/constants/theme'
-import { ADD_INITIAL_TRACKS_MUTATION, PLAYLIST_DETAIL_QUERY, PROPOSE_TRACK_MUTATION } from '@/lib/graphql/playlists'
-import { SEARCH_TRACKS_QUERY } from '@/lib/graphql/search'
-import { useAuthStore } from '@/store/auth-store'
+import { GlassView } from "@/components/glass-view";
+import { ThemedText } from "@/components/themed-text";
+import { ThemedView } from "@/components/themed-view";
+import {
+  TrackSearchRow,
+  type TrackSearchRowTrack,
+} from "@/components/track/track-search-row";
+import { Colors, Radius, ScreenPadding, Spacing } from "@/constants/theme";
+import {
+  ADD_INITIAL_TRACKS_MUTATION,
+  PLAYLIST_DETAIL_QUERY,
+  PROPOSE_TRACK_MUTATION,
+} from "@/lib/graphql/playlists";
+import { SEARCH_TRACKS_QUERY } from "@/lib/graphql/search";
+import { useAuthStore } from "@/store/auth-store";
 
-const SEARCH_LIMIT = 20
-const MAX_SELECTED_TRACKS = 50
+const SEARCH_LIMIT = 20;
+const MAX_SELECTED_TRACKS = 50;
 
 type SearchTracksData = {
-  searchTracks: TrackSearchRowTrack[]
-}
+  searchTracks: TrackSearchRowTrack[];
+};
 
 type AddInitialTracksData = {
-  addInitialTracks: unknown[]
-}
+  addInitialTracks: unknown[];
+};
 
 type ProposeTrackData = {
-  proposeTrack: unknown
-}
+  proposeTrack: unknown;
+};
 
 type SearchPlaylistData = {
   playlist: {
-    id: string
-    ownerId: string
-  } | null
-}
+    id: string;
+    ownerId: string;
+  } | null;
+};
 
 const mutationErrorMessage = (message: string, isProposeMode: boolean) => {
-  if (message.includes('Only the playlist owner can add initial tracks')) {
+  if (message.includes("Only the playlist owner can add initial tracks")) {
     return {
-      title: 'Only the owner can seed tracks',
-      body: 'Use propose mode to suggest this track for voting.',
-    }
+      title: "Only the owner can seed tracks",
+      body: "Use propose mode to suggest this track for voting.",
+    };
   }
 
-  if (message.includes('Track already proposed')) {
+  if (message.includes("Track already proposed")) {
     return {
-      title: 'Track is already in this playlist',
-      body: 'Pick another track to propose.',
-    }
+      title: "Track is already in this playlist",
+      body: "Pick another track to propose.",
+    };
   }
 
-  if (message.includes('UNAUTHENTICATED')) {
+  if (message.includes("UNAUTHENTICATED")) {
     return {
-      title: 'Session expired',
-      body: 'Log in again and retry.',
-    }
+      title: "Session expired",
+      body: "Log in again and retry.",
+    };
   }
 
   return {
-    title: isProposeMode ? 'Track could not be proposed' : 'Tracks could not be added',
-    body: message || 'Check your connection and try again.',
-  }
-}
+    title: isProposeMode
+      ? "Track could not be proposed"
+      : "Tracks could not be added",
+    body: message || "Check your connection and try again.",
+  };
+};
 
 export default function SearchScreen() {
-  const { id: playlistId, mode } = useLocalSearchParams<{ id?: string; mode?: string }>()
-  const navigation = useNavigation()
-  const client = useClient()
-  const userId = useAuthStore((state) => state.user?.id)
-  const [query, setQuery] = useState('')
-  const [debouncedQuery, setDebouncedQuery] = useState('')
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set())
-  const actionBarProgress = useRef(new Animated.Value(0)).current
-  const completingAddRef = useRef(false)
+  const { id: playlistId, mode } = useLocalSearchParams<{
+    id?: string;
+    mode?: string;
+  }>();
+  const navigation = useNavigation();
+  const client = useClient();
+  const userId = useAuthStore((state) => state.user?.id);
+  const [query, setQuery] = useState("");
+  const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const actionBarProgress = useRef(new Animated.Value(0)).current;
+  const completingAddRef = useRef(false);
 
-  const trimmedQuery = query.trim()
+  const trimmedQuery = query.trim();
 
   const scheduleDebouncedQuery = useCallback((nextQuery: string) => {
     return setTimeout(() => {
-      setDebouncedQuery(nextQuery.trim())
-    }, 300)
-  }, [])
+      setDebouncedQuery(nextQuery.trim());
+    }, 300);
+  }, []);
 
   useEffect(() => {
-    const timeoutId = scheduleDebouncedQuery(query)
+    const timeoutId = scheduleDebouncedQuery(query);
 
     return () => {
-      clearTimeout(timeoutId)
-    }
-  }, [query, scheduleDebouncedQuery])
+      clearTimeout(timeoutId);
+    };
+  }, [query, scheduleDebouncedQuery]);
 
   const [{ data, fetching, error }] = useQuery<SearchTracksData>({
     query: SEARCH_TRACKS_QUERY,
     variables: { query: debouncedQuery, limit: SEARCH_LIMIT },
     pause: debouncedQuery.length === 0,
-  })
+  });
   const [{ data: playlistData }] = useQuery<SearchPlaylistData>({
     query: PLAYLIST_DETAIL_QUERY,
-    variables: { id: playlistId ?? '' },
+    variables: { id: playlistId ?? "" },
     pause: !playlistId,
-  })
-  const [{ fetching: addingTracks }, addInitialTracks] = useMutation<AddInitialTracksData>(ADD_INITIAL_TRACKS_MUTATION)
-  const [{ fetching: proposingTrack }, proposeTrack] = useMutation<ProposeTrackData>(PROPOSE_TRACK_MUTATION)
+  });
+  const [{ fetching: addingTracks }, addInitialTracks] =
+    useMutation<AddInitialTracksData>(ADD_INITIAL_TRACKS_MUTATION);
+  const [{ fetching: proposingTrack }, proposeTrack] =
+    useMutation<ProposeTrackData>(PROPOSE_TRACK_MUTATION);
 
-  const tracks = data?.searchTracks ?? []
-  const isPlaylistOwner = Boolean(playlistData?.playlist && userId && playlistData.playlist.ownerId === userId)
-  const isProposeMode = mode === 'propose' || Boolean(playlistData?.playlist && userId && !isPlaylistOwner)
-  const isResolvingPlaylistMode = Boolean(playlistId && mode !== 'propose' && (!playlistData?.playlist || !userId))
-  const isSubmitting = addingTracks || proposingTrack || isResolvingPlaylistMode
-  const showInitialPrompt = trimmedQuery.length === 0
-  const showSkeletons = fetching && !data && !showInitialPrompt
-  const showNoResults = debouncedQuery.length > 0 && !fetching && !error && tracks.length === 0
+  const tracks = data?.searchTracks ?? [];
+  const isPlaylistOwner = Boolean(
+    playlistData?.playlist &&
+    userId &&
+    playlistData.playlist.ownerId === userId,
+  );
+  const isProposeMode =
+    mode === "propose" ||
+    Boolean(playlistData?.playlist && userId && !isPlaylistOwner);
+  const isResolvingPlaylistMode = Boolean(
+    playlistId && mode !== "propose" && (!playlistData?.playlist || !userId),
+  );
+  const isSubmitting =
+    addingTracks || proposingTrack || isResolvingPlaylistMode;
+  const showInitialPrompt = trimmedQuery.length === 0;
+  const showSkeletons = fetching && !data && !showInitialPrompt;
+  const showNoResults =
+    debouncedQuery.length > 0 && !fetching && !error && tracks.length === 0;
 
-  const selectedCount = selectedIds.size
-  const selectedTrackIds = useMemo(() => Array.from(selectedIds), [selectedIds])
+  const selectedCount = selectedIds.size;
+  const selectedTrackIds = useMemo(
+    () => Array.from(selectedIds),
+    [selectedIds],
+  );
   const selectionOrder = useMemo(() => {
-    const order = new Map<string, number>()
+    const order = new Map<string, number>();
 
     selectedTrackIds.forEach((id, index) => {
-      order.set(id, index + 1)
-    })
+      order.set(id, index + 1);
+    });
 
-    return order
-  }, [selectedTrackIds])
+    return order;
+  }, [selectedTrackIds]);
   const addButtonLabel = isProposeMode
-    ? 'Propose track'
-    : `Add ${selectedCount} ${selectedCount === 1 ? 'track' : 'tracks'}`
+    ? "Propose track"
+    : `Add ${selectedCount} ${selectedCount === 1 ? "track" : "tracks"}`;
 
-  const toggleTrack = useCallback((track: TrackSearchRowTrack) => {
-    setSelectedIds((current) => {
-      const next = new Set(current)
+  const toggleTrack = useCallback(
+    (track: TrackSearchRowTrack) => {
+      setSelectedIds((current) => {
+        const next = new Set(current);
 
-      if (next.has(track.spotifyTrackId)) {
-        next.delete(track.spotifyTrackId)
-      } else {
-        if (next.size >= (isProposeMode ? 1 : MAX_SELECTED_TRACKS)) {
-          return current
+        if (next.has(track.spotifyTrackId)) {
+          next.delete(track.spotifyTrackId);
+        } else {
+          if (next.size >= (isProposeMode ? 1 : MAX_SELECTED_TRACKS)) {
+            return current;
+          }
+
+          if (isProposeMode) {
+            next.clear();
+          }
+
+          next.add(track.spotifyTrackId);
         }
 
-        if (isProposeMode) {
-          next.clear()
-        }
-
-        next.add(track.spotifyTrackId)
-      }
-
-      return next
-    })
-  }, [isProposeMode])
+        return next;
+      });
+    },
+    [isProposeMode],
+  );
 
   const confirmAddTracks = useCallback(async () => {
-    if (!playlistId || selectedTrackIds.length === 0 || isSubmitting) return
+    if (!playlistId || selectedTrackIds.length === 0 || isSubmitting) return;
 
     const result = isProposeMode
       ? await proposeTrack({
@@ -161,19 +202,36 @@ export default function SearchScreen() {
       : await addInitialTracks({
           playlistId,
           spotifyTrackIds: selectedTrackIds,
-        })
+        });
 
     if (result.error) {
-      const { title, body } = mutationErrorMessage(result.error.message, isProposeMode)
-      Alert.alert(title, body)
-      return
+      const { title, body } = mutationErrorMessage(
+        result.error.message,
+        isProposeMode,
+      );
+      Alert.alert(title, body);
+      return;
     }
 
-    await client.query(PLAYLIST_DETAIL_QUERY, { id: playlistId }, { requestPolicy: 'network-only' }).toPromise()
-    completingAddRef.current = true
-    setSelectedIds(new Set())
-    router.back()
-  }, [addInitialTracks, client, isProposeMode, isSubmitting, playlistId, proposeTrack, selectedTrackIds])
+    await client
+      .query(
+        PLAYLIST_DETAIL_QUERY,
+        { id: playlistId },
+        { requestPolicy: "network-only" },
+      )
+      .toPromise();
+    completingAddRef.current = true;
+    setSelectedIds(new Set());
+    router.back();
+  }, [
+    addInitialTracks,
+    client,
+    isProposeMode,
+    isSubmitting,
+    playlistId,
+    proposeTrack,
+    selectedTrackIds,
+  ]);
 
   useEffect(() => {
     Animated.spring(actionBarProgress, {
@@ -181,54 +239,80 @@ export default function SearchScreen() {
       useNativeDriver: true,
       damping: 18,
       stiffness: 220,
-    }).start()
-  }, [actionBarProgress, playlistId, selectedCount])
+    }).start();
+  }, [actionBarProgress, playlistId, selectedCount]);
 
   useEffect(() => {
-    return navigation.addListener('beforeRemove', (event) => {
-      if (selectedIds.size === 0 || completingAddRef.current) return
+    return navigation.addListener("beforeRemove", (event) => {
+      if (selectedIds.size === 0 || completingAddRef.current) return;
 
-      event.preventDefault()
+      event.preventDefault();
 
-      Alert.alert('Discard selected tracks?', 'Your selected tracks will not be added to this playlist.', [
-        { text: 'Keep editing', style: 'cancel' },
-        {
-          text: 'Discard',
-          style: 'destructive',
-          onPress: () => {
-            setSelectedIds(new Set())
-            navigation.dispatch(event.data.action)
+      Alert.alert(
+        "Discard selected tracks?",
+        "Your selected tracks will not be added to this playlist.",
+        [
+          { text: "Keep editing", style: "cancel" },
+          {
+            text: "Discard",
+            style: "destructive",
+            onPress: () => {
+              setSelectedIds(new Set());
+              navigation.dispatch(event.data.action);
+            },
           },
-        },
-      ])
-    })
-  }, [navigation, selectedIds])
+        ],
+      );
+    });
+  }, [navigation, selectedIds]);
 
   const listContentStyle = useMemo(
-    () => [styles.listContent, (showInitialPrompt || showNoResults || error) && styles.stateListContent],
+    () => [
+      styles.listContent,
+      (showInitialPrompt || showNoResults || error) && styles.stateListContent,
+    ],
     [error, showInitialPrompt, showNoResults],
-  )
+  );
 
   return (
     <ThemedView style={styles.container}>
-      <SafeAreaView edges={['top']} style={styles.safeArea}>
-        <View style={styles.searchBar}>
-          <GlassInput
-            autoCapitalize="none"
-            autoCorrect={false}
-            clearButtonMode="while-editing"
-            onChangeText={setQuery}
-            placeholder="Search tracks"
-            returnKeyType="search"
-            testID="track-search-input"
-            value={query}
-          />
-          {selectedCount > 0 ? (
-            <ThemedText type="micro" themeColor="textSecondary" style={styles.selectionCount}>
+      <Stack.Screen
+        options={{
+          headerShown: true,
+          headerBackTitle: "",
+          headerStyle: { backgroundColor: Colors.background },
+          headerTintColor: Colors.text,
+          headerShadowVisible: false,
+          headerTitle: isProposeMode ? "Propose track" : "Search tracks",
+          headerSearchBarOptions: {
+            allowToolbarIntegration: true,
+            autoCapitalize: "none",
+            barTintColor: Colors.background,
+            hideNavigationBar: false,
+            hideWhenScrolling: true,
+            obscureBackground: false,
+            onCancelButtonPress: () => setQuery(""),
+            onChangeText: (event) => setQuery(event.nativeEvent.text ?? ""),
+            placement: "integratedButton",
+            placeholder: "Search tracks",
+            textColor: Colors.text,
+            tintColor: Colors.accent,
+          },
+          headerTransparent: false,
+        }}
+      />
+      <SafeAreaView edges={[]} style={styles.safeArea}>
+        {selectedCount > 0 ? (
+          <View style={styles.selectionBar}>
+            <ThemedText
+              type="micro"
+              themeColor="textSecondary"
+              style={styles.selectionCount}
+            >
               {selectedCount} selected
             </ThemedText>
-          ) : null}
-        </View>
+          </View>
+        ) : null}
 
         {showSkeletons ? (
           <View style={styles.skeletonList}>
@@ -253,14 +337,20 @@ export default function SearchScreen() {
             contentContainerStyle={listContentStyle}
             ItemSeparatorComponent={() => <View style={styles.separator} />}
             ListEmptyComponent={
-              showInitialPrompt ? <SearchPrompt isProposeMode={isProposeMode} /> : showNoResults ? <NoResults /> : error ? <SearchError /> : null
+              showInitialPrompt ? (
+                <SearchPrompt isProposeMode={isProposeMode} />
+              ) : showNoResults ? (
+                <NoResults />
+              ) : error ? (
+                <SearchError />
+              ) : null
             }
           />
         )}
 
         {playlistId && selectedCount > 0 ? (
           <Animated.View
-            pointerEvents={selectedCount > 0 ? 'auto' : 'none'}
+            pointerEvents={selectedCount > 0 ? "auto" : "none"}
             style={[
               styles.addBar,
               {
@@ -280,11 +370,23 @@ export default function SearchScreen() {
               accessibilityRole="button"
               disabled={isSubmitting || selectedCount === 0}
               onPress={confirmAddTracks}
-              style={({ pressed }) => [styles.addButton, pressed && styles.pressed, isSubmitting && styles.addButtonDisabled]}
+              style={({ pressed }) => [
+                styles.addButton,
+                pressed && styles.pressed,
+                isSubmitting && styles.addButtonDisabled,
+              ]}
             >
-              <GlassView glassEffectStyle="clear" colorScheme="dark" style={styles.addPill}>
+              <GlassView
+                glassEffectStyle="clear"
+                colorScheme="dark"
+                style={styles.addPill}
+              >
                 <ThemedText type="smallBold" style={styles.addLabel}>
-                  {isSubmitting ? (isProposeMode ? 'Proposing...' : 'Adding...') : addButtonLabel}
+                  {isSubmitting
+                    ? isProposeMode
+                      ? "Proposing..."
+                      : "Adding..."
+                    : addButtonLabel}
                 </ThemedText>
               </GlassView>
             </Pressable>
@@ -292,7 +394,7 @@ export default function SearchScreen() {
         ) : null}
       </SafeAreaView>
     </ThemedView>
-  )
+  );
 }
 
 function TrackSearchSkeleton() {
@@ -305,7 +407,7 @@ function TrackSearchSkeleton() {
       </View>
       <View style={styles.skeletonDuration} />
     </View>
-  )
+  );
 }
 
 function SearchPrompt({ isProposeMode }: { isProposeMode: boolean }) {
@@ -320,33 +422,45 @@ function SearchPrompt({ isProposeMode }: { isProposeMode: boolean }) {
       <ThemedText type="subtitle" style={styles.centerTitle}>
         Search for tracks
       </ThemedText>
-      <ThemedText type="small" themeColor="textSecondary" style={styles.centerCopy}>
+      <ThemedText
+        type="small"
+        themeColor="textSecondary"
+        style={styles.centerCopy}
+      >
         {isProposeMode
-          ? 'Find one song to propose for voting.'
-          : 'Find songs to seed your next playlist proposal.'}
+          ? "Find one song to propose for voting."
+          : "Find songs to seed your next playlist proposal."}
       </ThemedText>
     </View>
-  )
+  );
 }
 
 function NoResults() {
   return (
     <View style={styles.centerState}>
-      <ThemedText type="small" themeColor="textSecondary" style={styles.centerCopy}>
+      <ThemedText
+        type="small"
+        themeColor="textSecondary"
+        style={styles.centerCopy}
+      >
         No tracks found
       </ThemedText>
     </View>
-  )
+  );
 }
 
 function SearchError() {
   return (
     <View style={styles.centerState}>
-      <ThemedText type="small" themeColor="textSecondary" style={styles.centerCopy}>
+      <ThemedText
+        type="small"
+        themeColor="textSecondary"
+        style={styles.centerCopy}
+      >
         Search is unavailable. Try again in a moment.
       </ThemedText>
     </View>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -357,14 +471,12 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  searchBar: {
-    paddingTop: Spacing.three,
+  selectionBar: {
     paddingHorizontal: ScreenPadding,
-    paddingBottom: Spacing.three,
+    paddingVertical: Spacing.two,
     backgroundColor: Colors.background,
     borderBottomWidth: 1,
     borderBottomColor: Colors.glassBorder,
-    gap: Spacing.two,
     zIndex: 1,
   },
   selectionCount: {
@@ -381,11 +493,11 @@ const styles = StyleSheet.create({
     height: Spacing.two,
   },
   addBar: {
-    position: 'absolute',
+    position: "absolute",
     left: ScreenPadding,
     right: ScreenPadding,
     bottom: 96,
-    alignItems: 'center',
+    alignItems: "center",
   },
   addButton: {
     borderRadius: Radius.full,
@@ -399,9 +511,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.glassHighlight,
     paddingHorizontal: Spacing.four,
-    alignItems: 'center',
-    justifyContent: 'center',
-    overflow: 'hidden',
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
     backgroundColor: Colors.brandGlow,
     boxShadow: `0 16px 36px ${Colors.brandGlow}`,
   },
@@ -419,8 +531,8 @@ const styles = StyleSheet.create({
   },
   skeletonRow: {
     minHeight: 72,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.three,
     paddingVertical: Spacing.two,
   },
@@ -435,13 +547,13 @@ const styles = StyleSheet.create({
     gap: Spacing.two,
   },
   skeletonTitle: {
-    width: '72%',
+    width: "72%",
     height: 18,
     borderRadius: Radius.full,
     backgroundColor: Colors.glassRaised,
   },
   skeletonMeta: {
-    width: '48%',
+    width: "48%",
     height: 12,
     borderRadius: Radius.full,
     backgroundColor: Colors.glass,
@@ -454,19 +566,19 @@ const styles = StyleSheet.create({
   },
   centerState: {
     flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: ScreenPadding,
     paddingBottom: 96,
     gap: Spacing.three,
   },
   centerTitle: {
-    textAlign: 'center',
+    textAlign: "center",
     fontSize: 28,
     lineHeight: 34,
   },
   centerCopy: {
-    textAlign: 'center',
+    textAlign: "center",
     maxWidth: 280,
   },
   promptIllustration: {
@@ -475,14 +587,14 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.one,
   },
   promptDisc: {
-    position: 'absolute',
+    position: "absolute",
     left: 8,
     top: 8,
     width: 88,
     height: 88,
     borderRadius: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
     borderColor: Colors.glassBorder,
     backgroundColor: Colors.glassRaised,
@@ -496,13 +608,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.background,
   },
   promptNeedle: {
-    position: 'absolute',
+    position: "absolute",
     right: 16,
     top: 14,
     width: 8,
     height: 76,
     borderRadius: Radius.full,
     backgroundColor: Colors.accent,
-    transform: [{ rotate: '28deg' }],
+    transform: [{ rotate: "28deg" }],
   },
-})
+});

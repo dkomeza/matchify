@@ -1,3 +1,4 @@
+import { usePathname } from 'expo-router';
 import { Tabs, TabList, TabTrigger, TabSlot, TabTriggerSlotProps, TabListProps } from 'expo-router/ui';
 import { Pressable, View, StyleSheet } from 'react-native';
 
@@ -7,16 +8,23 @@ import { ThemedView } from './themed-view';
 import { MaxContentWidth, Radius, Spacing } from '@/constants/theme';
 
 export default function AppTabs() {
+  const pathname = usePathname();
+  const hidesTabBar =
+    pathname.includes('/playlists/') &&
+    (pathname.endsWith('/vote') || pathname.endsWith('/search'));
+
   return (
     <Tabs>
       <TabSlot style={{ height: '100%' }} />
-      <TabList asChild>
-        <CustomTabList>
-          <TabTrigger name="playlists" href="/playlists" asChild>
-            <TabButton>Playlists</TabButton>
-          </TabTrigger>
-        </CustomTabList>
-      </TabList>
+      {!hidesTabBar && (
+        <TabList asChild>
+          <CustomTabList>
+            <TabTrigger name="playlists" href="/playlists" asChild>
+              <TabButton>Playlists</TabButton>
+            </TabTrigger>
+          </CustomTabList>
+        </TabList>
+      )}
     </Tabs>
   );
 }

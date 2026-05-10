@@ -13,6 +13,7 @@ import { useMutation, useQuery, useSubscription } from 'urql'
 
 import { GlassView } from '@/components/glass-view'
 import { ThemedText } from '@/components/themed-text'
+import { BackButton } from '@/components/ui/back-button'
 import { ActionButton } from '@/components/vote/ActionButton'
 import { VoteCard, type VoteCardTrack } from '@/components/vote/VoteCard'
 import { Blur, Colors, Motion, Radius, ScreenPadding, Spacing } from '@/constants/theme'
@@ -181,9 +182,12 @@ export default function VoteScreen() {
     <ThemedViewContainer>
       <SafeAreaView style={styles.safeArea}>
         <View style={styles.header}>
-          <ThemedText type="subtitle" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72}>
-            {playlistName}
-          </ThemedText>
+          <View style={styles.titleRow}>
+            <BackButton />
+            <ThemedText type="subtitle" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.72} style={styles.title}>
+              {playlistName}
+            </ThemedText>
+          </View>
           {subscriptionStatus === 'reconnecting' && (
             <GlassView glassEffectStyle="regular" colorScheme="dark" style={styles.liveStatus}>
               <ThemedText type="micro" themeColor="textSecondary">
@@ -311,6 +315,14 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.three,
     paddingBottom: Spacing.two,
     gap: Spacing.two,
+  },
+  titleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.two,
+  },
+  title: {
+    flex: 1,
   },
   content: {
     flex: 1,
