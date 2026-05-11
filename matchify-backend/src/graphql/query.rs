@@ -1,14 +1,11 @@
 use async_graphql::{Context, Object, Result as GraphqlResult};
-use mongodb::{bson::doc, Database};
+use mongodb::{Database, bson::doc};
 use std::str::FromStr;
 
 use crate::{
     error::{AppError, Result},
     jwt::AuthUser,
-    model::{
-        playlist::PlaylistGql,
-        user::User,
-    },
+    model::{playlist::PlaylistGql, user::User},
     service::playlist as playlist_service,
 };
 
@@ -165,7 +162,7 @@ impl Query {
             .map_err(|_| AppError::Unexpected)?;
 
         let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
-        
+
         let collection = db.collection::<User>("users");
         let user = collection
             .find_one(doc! { "_id": object_id })
@@ -176,17 +173,70 @@ impl Query {
         let spotify_client = ctx
             .data::<crate::service::spotify::SpotifyClient>()
             .map_err(|_| AppError::Unexpected)?;
-            
+
         let config = ctx
             .data::<crate::config::AppConfig>()
             .map_err(|_| AppError::Unexpected)?;
 
-        let access_token = crate::service::spotify::get_valid_access_token(&user, spotify_client, db, config).await?;
+        let access_token =
+            crate::service::spotify::get_valid_access_token(&user, spotify_client, db, config)
+                .await?;
 
         let actual_limit = limit.unwrap_or(20);
-        let tracks = spotify_client.search_tracks(&query, actual_limit, &access_token).await?;
+        let tracks = spotify_client
+            .search_tracks(&query, actual_limit, &access_token)
+            .await?;
 
         Ok(tracks)
     }
 
+    async fn next_recommendation(
+        &self,
+        ctx: &Context<'_>,
+        playlist_id: String,
+        excluded_spotify_track_ids: Option<Vec<String>>,
+    ) -> Result<Option<crate::model::spotify::SpotifyTrack>> {
+        let auth_user = ctx
+            .data_opt::<AuthUser>()
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let caller_id = mongodb::bson::oid::ObjectId::from_str(&auth_user.user_id)
+            .map_err(|_| AppError::Unexpected)?;
+
+        let p_id = mongodb::bson::oid::ObjectId::from_str(&playlist_id)
+            .map_err(|_| AppError::Validation("Invalid playlist ID format".to_string()))?;
+
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+        let users = db.collection::<User>("users");
+        let user = users
+            .find_one(doc! { "_id": caller_id })
+            .await
+            .map_err(AppError::Database)?
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let spotify_client = ctx
+            .data::<crate::service::spotify::SpotifyClient>()
+            .map_err(|_| AppError::Unexpected)?;
+        let lastfm_client = ctx
+            .data::<crate::service::lastfm::LastfmClient>()
+            .map_err(|_| AppError::Unexpected)?;
+        let config = ctx
+            .data::<crate::config::AppConfig>()
+            .map_err(|_| AppError::Unexpected)?;
+
+        let access_token =
+            crate::service::spotify::get_valid_access_token(&user, spotify_client, db, config)
+                .await?;
+
+        crate::service::recommendation::next_recommendation(
+            db,
+            p_id,
+            caller_id,
+            excluded_spotify_track_ids.as_deref().unwrap_or(&[]),
+            lastfm_client,
+            spotify_client,
+            &access_token,
+        )
+        .await
+    }
 }

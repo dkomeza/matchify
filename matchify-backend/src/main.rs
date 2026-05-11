@@ -71,12 +71,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     tracing::info!("Successfully initialized Spotify Client");
 
+    tracing::info!("Initializing Last.fm Client");
+    let lastfm_client = service::lastfm::LastfmClient::new(config.lastfm_api_key.clone());
+    tracing::info!("Successfully initialized Last.fm Client");
+
     tracing::info!("Initializing Event Broker");
     let event_broker = events::EventBroker::new();
     tracing::info!("Successfully initialized Event Broker");
 
     tracing::info!("Building GraphQL Schema");
-    let schema = graphql::build_schema(db, config.clone(), spotify_client, event_broker.clone());
+    let schema = graphql::build_schema(
+        db,
+        config.clone(),
+        spotify_client,
+        lastfm_client,
+        event_broker.clone(),
+    );
     tracing::info!("Successfully built GraphQL Schema");
 
     tracing::info!("Building Axum Router");

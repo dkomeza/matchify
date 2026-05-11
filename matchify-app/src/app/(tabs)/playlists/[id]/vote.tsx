@@ -1,7 +1,7 @@
 import { useLocalSearchParams } from 'expo-router'
 import { SymbolView } from 'expo-symbols'
 import type { ReactNode } from 'react'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Pressable, StyleSheet, View, useWindowDimensions } from 'react-native'
 import { SafeAreaView } from 'react-native-safe-area-context'
 import Animated, {
@@ -9,7 +9,7 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated'
-import { useMutation, useQuery, useSubscription } from 'urql'
+import { useClient, useMutation, useQuery, useSubscription } from 'urql'
 
 import { GlassView } from '@/components/glass-view'
 import { ThemedText } from '@/components/themed-text'
@@ -19,12 +19,15 @@ import { VoteCard, type VoteCardTrack } from '@/components/vote/VoteCard'
 import { Blur, Colors, Motion, Radius, ScreenPadding, Spacing } from '@/constants/theme'
 import {
   NEW_PROPOSAL_SUBSCRIPTION,
+  NEXT_RECOMMENDATION_QUERY,
   NEXT_PROPOSAL_QUERY,
+  RESPOND_TO_RECOMMENDATION_MUTATION,
   VOTE_ON_TRACK_MUTATION,
 } from '@/lib/graphql/vote'
 import { useSubscriptionConnectionStatus } from '@/lib/subscription-status'
 
 type VoteType = 'LIKE' | 'SKIP'
+type RecommendationAction = 'ACCEPT' | 'REJECT'
 
 type NextProposalData = {
   nextProposal: VoteCardTrack | null
@@ -36,6 +39,33 @@ type VoteOnTrackData = {
     status: string
     likeCount: number
   }
+}
+
+type RecommendationTrack = {
+  spotifyTrackId: string
+  title: string
+  artist: string
+  album?: string | null
+  albumArtUrl?: string | null
+  previewUrl?: string | null
+  durationMs: number
+}
+
+type NextRecommendationData = {
+  nextRecommendation: RecommendationTrack | null
+}
+
+type NextRecommendationVariables = {
+  playlistId?: string
+  excludedSpotifyTrackIds?: string[]
+}
+
+type RespondToRecommendationData = {
+  respondToRecommendation: {
+    id: string
+    status: string
+    likeCount: number
+  } | null
 }
 
 type NewProposalData = {
@@ -50,6 +80,15 @@ const firstParam = (value: string | string[] | undefined) => {
   return value
 }
 
+const toVoteCardTrack = (recommendation: RecommendationTrack): VoteCardTrack => ({
+  id: recommendation.spotifyTrackId,
+  title: recommendation.title,
+  artist: recommendation.artist,
+  album: recommendation.album,
+  albumArtUrl: recommendation.albumArtUrl,
+  durationMs: recommendation.durationMs,
+})
+
 export default function VoteScreen() {
   const { id: playlistIdParam, playlistName: playlistNameParam } = useLocalSearchParams<{
     id?: string | string[]
@@ -58,10 +97,14 @@ export default function VoteScreen() {
   const playlistId = firstParam(playlistIdParam)
   const playlistName = firstParam(playlistNameParam) ?? 'Vote'
   const { width } = useWindowDimensions()
+  const client = useClient()
   const [votingTrackId, setVotingTrackId] = useState<string | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [hasNewProposalBadge, setHasNewProposalBadge] = useState(false)
+  const [recommendationQueue, setRecommendationQueue] = useState<VoteCardTrack[]>([])
   const voteInFlightRef = useRef(false)
+  const recommendationPrefetchRef = useRef(false)
+  const consumedRecommendationIdsRef = useRef<Set<string>>(new Set())
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const subscriptionStatus = useSubscriptionConnectionStatus()
   const cardTranslateX = useSharedValue(width + EXIT_OVERSHOOT)
@@ -74,6 +117,19 @@ export default function VoteScreen() {
   })
   const [, voteOnTrack] = useMutation<VoteOnTrackData, { trackId: string; vote: VoteType }>(VOTE_ON_TRACK_MUTATION)
   const track = data?.nextProposal ?? null
+  const [{ data: recommendationData, fetching: fetchingRecommendation, error: recommendationError }, executeRecommendationQuery] =
+    useQuery<NextRecommendationData>({
+      query: NEXT_RECOMMENDATION_QUERY,
+      variables: { playlistId, excludedSpotifyTrackIds: [] },
+      pause: !playlistId || fetching || Boolean(track),
+    })
+  const [, respondToRecommendation] = useMutation<
+    RespondToRecommendationData,
+    { playlistId: string; spotifyTrackId: string; action: RecommendationAction }
+  >(RESPOND_TO_RECOMMENDATION_MUTATION)
+  const recommendationTrack = recommendationQueue[0] ?? null
+  const activeTrack = track ?? recommendationTrack
+  const isDiscoveryMode = !track && Boolean(recommendationTrack)
 
   useSubscription<NewProposalData, NewProposalData | undefined, { playlistId?: string }>(
     {
@@ -94,10 +150,81 @@ export default function VoteScreen() {
     },
   )
 
-  const trackId = track?.id
-  const isInitialLoading = fetching && !data
+  const trackId = activeTrack?.id
+  const isInitialLoading = (fetching && !data) || (!track && fetchingRecommendation && !recommendationData)
   const isVoting = Boolean(votingTrackId)
   const exitDistance = width + EXIT_OVERSHOOT
+  const activeError = error ?? (!track ? recommendationError : undefined)
+
+  useEffect(() => {
+    setRecommendationQueue([])
+    consumedRecommendationIdsRef.current = new Set()
+  }, [playlistId])
+
+  useEffect(() => {
+    const recommendation = recommendationData?.nextRecommendation
+
+    if (!recommendation) return
+
+    const nextTrack = toVoteCardTrack(recommendation)
+    setRecommendationQueue((currentQueue) => {
+      if (
+        consumedRecommendationIdsRef.current.has(nextTrack.id) ||
+        currentQueue.some((queuedTrack) => queuedTrack.id === nextTrack.id)
+      ) {
+        return currentQueue
+      }
+
+      return [...currentQueue, nextTrack]
+    })
+  }, [recommendationData?.nextRecommendation])
+
+  const recommendationExclusions = useCallback(
+    (queuedTracks: VoteCardTrack[] = recommendationQueue) =>
+      Array.from(new Set([...Array.from(consumedRecommendationIdsRef.current), ...queuedTracks.map((queuedTrack) => queuedTrack.id)])),
+    [recommendationQueue],
+  )
+
+  const prefetchRecommendation = useCallback(
+    async (excludeIds: string[]) => {
+      if (!playlistId || recommendationPrefetchRef.current) return
+
+      recommendationPrefetchRef.current = true
+      const result = await client
+        .query<NextRecommendationData, NextRecommendationVariables>(
+          NEXT_RECOMMENDATION_QUERY,
+          { playlistId, excludedSpotifyTrackIds: excludeIds },
+          { requestPolicy: 'network-only' },
+        )
+        .toPromise()
+        .finally(() => {
+          recommendationPrefetchRef.current = false
+        })
+
+      const recommendation = result.data?.nextRecommendation
+
+      if (!recommendation || result.error) return
+
+      const nextTrack = toVoteCardTrack(recommendation)
+      setRecommendationQueue((currentQueue) => {
+        if (
+          consumedRecommendationIdsRef.current.has(nextTrack.id) ||
+          currentQueue.some((queuedTrack) => queuedTrack.id === nextTrack.id)
+        ) {
+          return currentQueue
+        }
+
+        return [...currentQueue, nextTrack]
+      })
+    },
+    [client, playlistId],
+  )
+
+  useEffect(() => {
+    if (track || fetchingRecommendation || recommendationQueue.length !== 1) return
+
+    void prefetchRecommendation(recommendationExclusions())
+  }, [fetchingRecommendation, prefetchRecommendation, recommendationExclusions, recommendationQueue, track])
 
   useEffect(() => {
     if (!trackId) return
@@ -148,6 +275,21 @@ export default function VoteScreen() {
     void executeQuery({ requestPolicy: 'network-only' })
   }
 
+  const refreshNextRecommendation = () => {
+    setRecommendationQueue([])
+    consumedRecommendationIdsRef.current = new Set()
+    void executeRecommendationQuery({ requestPolicy: 'network-only' })
+  }
+
+  const retryActiveQueue = () => {
+    if (track || error) {
+      refreshNextProposal()
+      return
+    }
+
+    refreshNextRecommendation()
+  }
+
   const castVote = async (vote: VoteType) => {
     if (!track || voteInFlightRef.current) return
 
@@ -176,6 +318,58 @@ export default function VoteScreen() {
     setVotingTrackId(null)
     setHasNewProposalBadge(false)
     refreshNextProposal()
+  }
+
+  const respondToDiscovery = async (action: RecommendationAction) => {
+    if (!playlistId || !recommendationTrack || voteInFlightRef.current) return
+
+    const swipedTrack = recommendationTrack
+    consumedRecommendationIdsRef.current.add(swipedTrack.id)
+    voteInFlightRef.current = true
+    setVotingTrackId(swipedTrack.id)
+    const queuedAfterSwipe = recommendationQueue.filter((queuedTrack) => queuedTrack.id !== swipedTrack.id)
+    setRecommendationQueue(queuedAfterSwipe)
+
+    const direction = action === 'ACCEPT' ? 1 : -1
+    cardTranslateX.value = withSpring(direction * exitDistance, Motion.spring)
+    cardOpacity.value = withSpring(0, Motion.spring)
+
+    const result = await respondToRecommendation({
+      playlistId,
+      spotifyTrackId: swipedTrack.id,
+      action,
+    }).catch((caughtError: unknown) => {
+      const message = caughtError instanceof Error ? caughtError.message : 'Please try again.'
+
+      consumedRecommendationIdsRef.current.delete(swipedTrack.id)
+      setRecommendationQueue((currentQueue) => [
+        swipedTrack,
+        ...currentQueue.filter((queuedTrack) => queuedTrack.id !== swipedTrack.id),
+      ])
+      recoverFromVoteError(message)
+      return null
+    })
+
+    if (!result) return
+
+    if (result.error) {
+      consumedRecommendationIdsRef.current.delete(swipedTrack.id)
+      setRecommendationQueue((currentQueue) => [
+        swipedTrack,
+        ...currentQueue.filter((queuedTrack) => queuedTrack.id !== swipedTrack.id),
+      ])
+      recoverFromVoteError(result.error.message)
+      return
+    }
+
+    voteInFlightRef.current = false
+    setVotingTrackId(null)
+
+    if (action === 'ACCEPT') {
+      refreshNextProposal()
+    }
+
+    void prefetchRecommendation(recommendationExclusions(queuedAfterSwipe))
   }
 
   return (
@@ -208,22 +402,38 @@ export default function VoteScreen() {
 
           {isInitialLoading ? (
             <VoteCardSkeleton />
-          ) : error ? (
-            <ErrorState onRetry={refreshNextProposal} />
-          ) : track ? (
+          ) : activeError ? (
+            <ErrorState onRetry={retryActiveQueue} />
+          ) : activeTrack ? (
             <>
               <Animated.View style={[styles.cardWrap, cardAnimatedStyle]}>
                 <VoteCard
-                  key={track.id}
-                  track={track}
-                  onSwipeLeft={() => void castVote('SKIP')}
-                  onSwipeRight={() => void castVote('LIKE')}
+                  key={`${isDiscoveryMode ? 'discover' : 'vote'}-${activeTrack.id}`}
+                  track={activeTrack}
+                  onSwipeLeft={() => void (isDiscoveryMode ? respondToDiscovery('REJECT') : castVote('SKIP'))}
+                  onSwipeRight={() => void (isDiscoveryMode ? respondToDiscovery('ACCEPT') : castVote('LIKE'))}
                 />
               </Animated.View>
 
+              {isDiscoveryMode && (
+                <GlassView glassEffectStyle="regular" colorScheme="dark" style={styles.discoveryBadge}>
+                  <ThemedText type="micro" themeColor="textSecondary">
+                    Discovery pick
+                  </ThemedText>
+                </GlassView>
+              )}
+
               <View style={styles.actions}>
-                <ActionButton type="skip" disabled={isVoting} onPress={() => void castVote('SKIP')} />
-                <ActionButton type="like" disabled={isVoting} onPress={() => void castVote('LIKE')} />
+                <ActionButton
+                  type="skip"
+                  disabled={isVoting}
+                  onPress={() => void (isDiscoveryMode ? respondToDiscovery('REJECT') : castVote('SKIP'))}
+                />
+                <ActionButton
+                  type="like"
+                  disabled={isVoting}
+                  onPress={() => void (isDiscoveryMode ? respondToDiscovery('ACCEPT') : castVote('LIKE'))}
+                />
               </View>
             </>
           ) : (
@@ -275,10 +485,10 @@ function EmptyState() {
         <SymbolView name="music.note" tintColor={Colors.like} size={38} resizeMode="scaleAspectFit" weight="semibold" />
       </GlassView>
       <ThemedText type="subtitle" style={styles.centerText}>
-        {"You're all caught up!"}
+        {"You're all caught up"}
       </ThemedText>
       <ThemedText type="small" themeColor="textSecondary" style={styles.centerText}>
-        Come back when someone proposes a new track
+        No proposals or discoveries are available right now
       </ThemedText>
     </View>
   )
@@ -351,6 +561,17 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: Spacing.four,
     alignSelf: 'center',
+    minHeight: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
+    paddingHorizontal: Spacing.three,
+    backgroundColor: Colors.glassRaised,
+  },
+  discoveryBadge: {
     minHeight: 32,
     alignItems: 'center',
     justifyContent: 'center',

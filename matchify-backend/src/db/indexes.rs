@@ -1,8 +1,4 @@
-use mongodb::{
-    bson::doc,
-    options::IndexOptions,
-    Database, IndexModel,
-};
+use mongodb::{Database, IndexModel, bson::doc, options::IndexOptions};
 
 pub async fn create_indexes(db: &Database) -> mongodb::error::Result<()> {
     // users
@@ -42,6 +38,23 @@ pub async fn create_indexes(db: &Database) -> mongodb::error::Result<()> {
         .build();
     db.collection::<mongodb::bson::Document>("votes")
         .create_index(vote_idx)
+        .await?;
+
+    // recommendations
+    let recommendation_cache_idx = IndexModel::builder()
+        .keys(doc! { "seed_key": 1 })
+        .options(IndexOptions::builder().unique(true).build())
+        .build();
+    db.collection::<mongodb::bson::Document>("recommendation_cache")
+        .create_index(recommendation_cache_idx)
+        .await?;
+
+    let recommendation_interaction_idx = IndexModel::builder()
+        .keys(doc! { "playlist_id": 1, "user_id": 1, "spotify_track_id": 1 })
+        .options(IndexOptions::builder().unique(true).build())
+        .build();
+    db.collection::<mongodb::bson::Document>("recommendation_interactions")
+        .create_index(recommendation_interaction_idx)
         .await?;
 
     tracing::info!("MongoDB indexes created or verified");

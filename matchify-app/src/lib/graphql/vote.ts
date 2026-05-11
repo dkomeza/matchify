@@ -39,3 +39,27 @@ export const NEW_PROPOSAL_SUBSCRIPTION = gql`
     }
   }
 `
+
+export const NEXT_RECOMMENDATION_QUERY = gql`
+  query NextRecommendation($playlistId: String!, $excludedSpotifyTrackIds: [String!]) {
+    nextRecommendation(playlistId: $playlistId, excludedSpotifyTrackIds: $excludedSpotifyTrackIds) {
+      spotifyTrackId
+      title
+      artist
+      album
+      albumArtUrl
+      previewUrl
+      durationMs
+    }
+  }
+`
+
+export const RESPOND_TO_RECOMMENDATION_MUTATION = gql`
+  mutation RespondToRecommendation($playlistId: ID!, $spotifyTrackId: String!, $action: RecommendationAction!) {
+    respondToRecommendation(playlistId: $playlistId, spotifyTrackId: $spotifyTrackId, action: $action) {
+      id
+      status
+      likeCount
+    }
+  }
+`

@@ -1,9 +1,9 @@
 use async_graphql::{Context, InputObject, Object, SimpleObject};
 use chrono::{Duration, Utc};
 use mongodb::{
+    Database,
     bson::{doc, oid::ObjectId},
     options::{FindOneAndUpdateOptions, ReturnDocument},
-    Database,
 };
 
 use crate::{
@@ -61,12 +61,18 @@ impl Mutation {
         code: String,
         redirect_uri: String,
     ) -> Result<AuthPayload> {
-        let spotify_client = ctx.data::<SpotifyClient>().map_err(|_| AppError::Unexpected)?;
+        let spotify_client = ctx
+            .data::<SpotifyClient>()
+            .map_err(|_| AppError::Unexpected)?;
         let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
-        let config = ctx.data::<crate::config::AppConfig>().map_err(|_| AppError::Unexpected)?;
+        let config = ctx
+            .data::<crate::config::AppConfig>()
+            .map_err(|_| AppError::Unexpected)?;
 
         let tokens = spotify_client.exchange_code(&code, &redirect_uri).await?;
-        let profile = spotify_client.get_user_profile(&tokens.access_token).await?;
+        let profile = spotify_client
+            .get_user_profile(&tokens.access_token)
+            .await?;
 
         let encrypted_access = encrypt_token(&tokens.access_token, &config.encryption_key)?;
         let encrypted_refresh = tokens
@@ -138,8 +144,7 @@ impl Mutation {
                 AppError::SpotifyAuth("You must be logged in to create a playlist".to_string())
             })?;
 
-        let owner_id = ObjectId::parse_str(&auth_user.user_id)
-            .map_err(|_| AppError::Unexpected)?;
+        let owner_id = ObjectId::parse_str(&auth_user.user_id).map_err(|_| AppError::Unexpected)?;
 
         let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
 
@@ -157,19 +162,13 @@ impl Mutation {
         Ok(PlaylistGql::from(playlist))
     }
 
-    async fn join_playlist(
-        &self,
-        ctx: &Context<'_>,
-        invite_code: String,
-    ) -> Result<PlaylistGql> {
-        let auth_user = ctx
-            .data_opt::<AuthUser>()
-            .ok_or_else(|| {
-                AppError::SpotifyAuth("You must be logged in to join a playlist".to_string())
-            })?;
+    async fn join_playlist(&self, ctx: &Context<'_>, invite_code: String) -> Result<PlaylistGql> {
+        let auth_user = ctx.data_opt::<AuthUser>().ok_or_else(|| {
+            AppError::SpotifyAuth("You must be logged in to join a playlist".to_string())
+        })?;
 
-        let caller_id = ObjectId::parse_str(&auth_user.user_id)
-            .map_err(|_| AppError::Unexpected)?;
+        let caller_id =
+            ObjectId::parse_str(&auth_user.user_id).map_err(|_| AppError::Unexpected)?;
 
         let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
 
@@ -188,8 +187,8 @@ impl Mutation {
             .data_opt::<AuthUser>()
             .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
 
-        let caller_id = ObjectId::parse_str(&auth_user.user_id)
-            .map_err(|_| AppError::Unexpected)?;
+        let caller_id =
+            ObjectId::parse_str(&auth_user.user_id).map_err(|_| AppError::Unexpected)?;
 
         let playlist_id = ObjectId::parse_str(&id)
             .map_err(|_| AppError::Validation("Invalid playlist ID format".to_string()))?;
@@ -211,17 +210,13 @@ impl Mutation {
         Ok(PlaylistGql::from(playlist))
     }
 
-    async fn leave_playlist(
-        &self,
-        ctx: &Context<'_>,
-        playlist_id: String,
-    ) -> Result<bool> {
+    async fn leave_playlist(&self, ctx: &Context<'_>, playlist_id: String) -> Result<bool> {
         let auth_user = ctx
             .data_opt::<AuthUser>()
             .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
 
-        let caller_id = ObjectId::parse_str(&auth_user.user_id)
-            .map_err(|_| AppError::Unexpected)?;
+        let caller_id =
+            ObjectId::parse_str(&auth_user.user_id).map_err(|_| AppError::Unexpected)?;
 
         let pid = ObjectId::parse_str(&playlist_id)
             .map_err(|_| AppError::Validation("Invalid playlist ID format".to_string()))?;
@@ -241,12 +236,12 @@ impl Mutation {
             .data_opt::<AuthUser>()
             .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
 
-        let caller_id = ObjectId::parse_str(&auth_user.user_id)
-            .map_err(|_| AppError::Unexpected)?;
+        let caller_id =
+            ObjectId::parse_str(&auth_user.user_id).map_err(|_| AppError::Unexpected)?;
 
         let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
         let collection = db.collection::<User>("users");
-        
+
         let user = collection
             .find_one(doc! { "_id": caller_id })
             .await
@@ -256,12 +251,14 @@ impl Mutation {
         let spotify_client = ctx
             .data::<crate::service::spotify::SpotifyClient>()
             .map_err(|_| AppError::Unexpected)?;
-            
+
         let config = ctx
             .data::<crate::config::AppConfig>()
             .map_err(|_| AppError::Unexpected)?;
 
-        let access_token = crate::service::spotify::get_valid_access_token(&user, spotify_client, db, config).await?;
+        let access_token =
+            crate::service::spotify::get_valid_access_token(&user, spotify_client, db, config)
+                .await?;
 
         let pid = ObjectId::parse_str(&playlist_id)
             .map_err(|_| AppError::Validation("Invalid playlist ID format".to_string()))?;
@@ -277,7 +274,10 @@ impl Mutation {
         )
         .await?;
 
-        Ok(songs.into_iter().map(crate::model::song::SongGql::from).collect())
+        Ok(songs
+            .into_iter()
+            .map(crate::model::song::SongGql::from)
+            .collect())
     }
 
     async fn vote_on_track(
@@ -290,8 +290,8 @@ impl Mutation {
             .data_opt::<AuthUser>()
             .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
 
-        let caller_id = ObjectId::parse_str(&auth_user.user_id)
-            .map_err(|_| AppError::Unexpected)?;
+        let caller_id =
+            ObjectId::parse_str(&auth_user.user_id).map_err(|_| AppError::Unexpected)?;
 
         let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
         let client = db.client();
@@ -332,16 +332,16 @@ impl Mutation {
             .data_opt::<AuthUser>()
             .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
 
-        let caller_id = ObjectId::parse_str(&auth_user.user_id)
-            .map_err(|_| AppError::Unexpected)?;
+        let caller_id =
+            ObjectId::parse_str(&auth_user.user_id).map_err(|_| AppError::Unexpected)?;
 
         let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
-        
+
         let p_id = ObjectId::parse_str(playlist_id.as_str())
             .map_err(|_| AppError::Validation("Invalid playlist ID format".to_string()))?;
-            
+
         let collection = db.collection::<User>("users");
-        
+
         let user = collection
             .find_one(doc! { "_id": caller_id })
             .await
@@ -351,12 +351,14 @@ impl Mutation {
         let spotify_client = ctx
             .data::<crate::service::spotify::SpotifyClient>()
             .map_err(|_| AppError::Unexpected)?;
-            
+
         let config = ctx
             .data::<crate::config::AppConfig>()
             .map_err(|_| AppError::Unexpected)?;
 
-        let access_token = crate::service::spotify::get_valid_access_token(&user, spotify_client, db, config).await?;
+        let access_token =
+            crate::service::spotify::get_valid_access_token(&user, spotify_client, db, config)
+                .await?;
 
         let song = crate::service::song::propose_track(
             db,
@@ -370,5 +372,58 @@ impl Mutation {
         .await?;
 
         Ok(crate::model::song::SongGql::from(song))
+    }
+
+    async fn respond_to_recommendation(
+        &self,
+        ctx: &Context<'_>,
+        playlist_id: async_graphql::ID,
+        spotify_track_id: String,
+        action: crate::model::recommendation::RecommendationAction,
+    ) -> Result<Option<crate::model::song::SongGql>> {
+        let auth_user = ctx
+            .data_opt::<AuthUser>()
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let caller_id =
+            ObjectId::parse_str(&auth_user.user_id).map_err(|_| AppError::Unexpected)?;
+
+        let p_id = ObjectId::parse_str(playlist_id.as_str())
+            .map_err(|_| AppError::Validation("Invalid playlist ID format".to_string()))?;
+
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+        let collection = db.collection::<User>("users");
+        let user = collection
+            .find_one(doc! { "_id": caller_id })
+            .await
+            .map_err(AppError::Database)?
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let spotify_client = ctx
+            .data::<crate::service::spotify::SpotifyClient>()
+            .map_err(|_| AppError::Unexpected)?;
+        let config = ctx
+            .data::<crate::config::AppConfig>()
+            .map_err(|_| AppError::Unexpected)?;
+
+        let access_token =
+            crate::service::spotify::get_valid_access_token(&user, spotify_client, db, config)
+                .await?;
+
+        let song = crate::service::recommendation::respond_to_recommendation(
+            db.client(),
+            db,
+            p_id,
+            caller_id,
+            spotify_track_id,
+            action,
+            spotify_client,
+            &access_token,
+            ctx.data_unchecked::<crate::events::EventBroker>(),
+            config,
+        )
+        .await?;
+
+        Ok(song.map(crate::model::song::SongGql::from))
     }
 }
