@@ -13,12 +13,14 @@ pub fn build_schema(
     db: mongodb::Database,
     config: crate::config::AppConfig,
     spotify_client: crate::service::spotify::SpotifyClient,
+    lastfm_client: crate::service::lastfm::LastfmClient,
     event_broker: crate::events::EventBroker,
 ) -> AppSchema {
     Schema::build(Query, Mutation, MatchifySubscription)
         .data(db)
         .data(config)
         .data(spotify_client)
+        .data(lastfm_client)
         .data(event_broker)
         .finish()
 }
