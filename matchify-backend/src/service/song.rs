@@ -10,11 +10,44 @@ use mongodb::{bson::doc, bson::oid::ObjectId, Client, Database, error::TRANSIENT
 use futures::StreamExt;
 use crate::model::vote::{Vote, VoteType};
 
+const MAX_PENDING_PROPOSALS_PER_USER: u64 = 10;
+
 fn is_duplicate_key_error(err: &mongodb::error::Error) -> bool {
     use mongodb::error::ErrorKind;
     match err.kind.as_ref() {
         ErrorKind::Write(mongodb::error::WriteFailure::WriteError(we)) => we.code == 11000,
         _ => false,
+    }
+}
+
+fn ensure_user_pending_proposal_capacity(pending_count: u64) -> Result<()> {
+    if pending_count >= MAX_PENDING_PROPOSALS_PER_USER {
+        return Err(AppError::Validation(format!(
+            "You can only have {} pending proposals in this playlist",
+            MAX_PENDING_PROPOSALS_PER_USER
+        )));
+    }
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod proposal_limit_tests {
+    use super::*;
+
+    #[test]
+    fn allows_tenth_pending_proposal_for_user() {
+        assert!(ensure_user_pending_proposal_capacity(9).is_ok());
+    }
+
+    #[test]
+    fn rejects_eleventh_pending_proposal_for_user() {
+        let err = ensure_user_pending_proposal_capacity(10).unwrap_err();
+
+        assert!(
+            matches!(&err, AppError::Validation(message) if message.contains("10 pending proposals")),
+            "expected pending proposal limit validation error, got {err:?}"
+        );
     }
 }
 
@@ -321,12 +354,23 @@ pub async fn propose_track(
         ));
     }
 
-    let spotify_tracks = spotify_client.get_tracks(&[spotify_track_id.clone()], access_token).await?;
+    let songs_coll = db.collection::<Song>("songs");
+    let pending_count = songs_coll
+        .count_documents(doc! {
+            "playlist_id": playlist_id,
+            "proposed_by": caller_id,
+            "status": "Pending",
+        })
+        .await?;
+
+    ensure_user_pending_proposal_capacity(pending_count)?;
+
+    let spotify_tracks = spotify_client
+        .get_tracks(&[spotify_track_id.clone()], access_token)
+        .await?;
     let track = spotify_tracks.into_iter().next().ok_or_else(|| {
         AppError::NotFound(format!("Spotify track {} not found", spotify_track_id))
     })?;
-
-    let songs_coll = db.collection::<Song>("songs");
 
     let song = Song {
         id: ObjectId::new(),

@@ -69,6 +69,13 @@ const mutationErrorMessage = (message: string, isProposeMode: boolean) => {
     };
   }
 
+  if (message.includes("10 pending proposals")) {
+    return {
+      title: "Proposal queue is full",
+      body: "Vote on your pending proposals before adding another song.",
+    };
+  }
+
   if (message.includes("UNAUTHENTICATED")) {
     return {
       title: "Session expired",

@@ -14,7 +14,6 @@ import { useClient, useMutation, useQuery, useSubscription } from 'urql'
 import { GlassView } from '@/components/glass-view'
 import { ThemedText } from '@/components/themed-text'
 import { BackButton } from '@/components/ui/back-button'
-import { ActionButton } from '@/components/vote/ActionButton'
 import { VoteCard, type VoteCardTrack } from '@/components/vote/VoteCard'
 import { Blur, Colors, Motion, Radius, ScreenPadding, Spacing } from '@/constants/theme'
 import {
@@ -98,7 +97,7 @@ export default function VoteScreen() {
   const playlistName = firstParam(playlistNameParam) ?? 'Vote'
   const { width } = useWindowDimensions()
   const client = useClient()
-  const [votingTrackId, setVotingTrackId] = useState<string | null>(null)
+  const [, setVotingTrackId] = useState<string | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [hasNewProposalBadge, setHasNewProposalBadge] = useState(false)
   const [recommendationQueue, setRecommendationQueue] = useState<VoteCardTrack[]>([])
@@ -152,7 +151,6 @@ export default function VoteScreen() {
 
   const trackId = activeTrack?.id
   const isInitialLoading = (fetching && !data) || (!track && fetchingRecommendation && !recommendationData)
-  const isVoting = Boolean(votingTrackId)
   const exitDistance = width + EXIT_OVERSHOOT
   const activeError = error ?? (!track ? recommendationError : undefined)
 
@@ -423,18 +421,6 @@ export default function VoteScreen() {
                 </GlassView>
               )}
 
-              <View style={styles.actions}>
-                <ActionButton
-                  type="skip"
-                  disabled={isVoting}
-                  onPress={() => void (isDiscoveryMode ? respondToDiscovery('REJECT') : castVote('SKIP'))}
-                />
-                <ActionButton
-                  type="like"
-                  disabled={isVoting}
-                  onPress={() => void (isDiscoveryMode ? respondToDiscovery('ACCEPT') : castVote('LIKE'))}
-                />
-              </View>
             </>
           ) : (
             <EmptyState />
@@ -581,12 +567,6 @@ const styles = StyleSheet.create({
     borderColor: Colors.glassBorder,
     paddingHorizontal: Spacing.three,
     backgroundColor: Colors.glassRaised,
-  },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 40,
   },
   skeletonCard: {
     width: '100%',

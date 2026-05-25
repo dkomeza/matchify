@@ -182,17 +182,39 @@ export function VoteCard({ track, onSwipeRight, onSwipeLeft }: VoteCardProps) {
           colorScheme="dark"
           intensity={Blur.heavy}
           tintColor={Colors.glassRaised}
+          forceFallback
           style={styles.infoOverlay}
         >
-          <ThemedText type="display" numberOfLines={2} adjustsFontSizeToFit minimumFontScale={0.72}>
-            {track.title}
-          </ThemedText>
-          <ThemedText type="subtitle" themeColor="textSecondary" numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.74}>
-            {track.artist}
-          </ThemedText>
-          <ThemedText type="micro" themeColor="textTertiary" numberOfLines={1}>
-            {albumAndDuration}
-          </ThemedText>
+          <View style={styles.metadataHeader}>
+            <ThemedText
+              testID={`vote-card-title-${track.id}`}
+              type="display"
+              numberOfLines={2}
+              adjustsFontSizeToFit
+              minimumFontScale={0.72}
+              style={styles.titleText}
+            >
+              {track.title}
+            </ThemedText>
+            <ThemedText
+              testID={`vote-card-artist-${track.id}`}
+              type="subtitle"
+              themeColor="textSecondary"
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              minimumFontScale={0.74}
+              style={styles.artistText}
+            >
+              {track.artist}
+            </ThemedText>
+          </View>
+          {albumAndDuration ? (
+            <View testID={`vote-card-metadata-${track.id}`} style={styles.metadataPill}>
+              <ThemedText type="micro" numberOfLines={1} style={styles.metadataText}>
+                {albumAndDuration}
+              </ThemedText>
+            </View>
+          ) : null}
         </GlassView>
       </Animated.View>
     </GestureDetector>
@@ -245,11 +267,33 @@ const styles = StyleSheet.create({
     left: Spacing.three,
     right: Spacing.three,
     bottom: Spacing.three,
-    gap: Spacing.two,
+    gap: Spacing.three,
     overflow: 'hidden',
     borderRadius: Radius.md,
     borderWidth: 1,
     borderColor: Colors.glassBorder,
     padding: CardPadding,
+  },
+  metadataHeader: {
+    gap: Spacing.two,
+  },
+  titleText: {
+    color: Colors.text,
+  },
+  artistText: {
+    color: Colors.textSecondary,
+  },
+  metadataPill: {
+    alignSelf: 'flex-start',
+    minHeight: 26,
+    justifyContent: 'center',
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
+    backgroundColor: Colors.glassRaised,
+    paddingHorizontal: Spacing.three,
+  },
+  metadataText: {
+    color: Colors.textSecondary,
   },
 })
