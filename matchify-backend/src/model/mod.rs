@@ -12,6 +12,9 @@ pub use recommendation::{
     RecommendationInteraction,
 };
 pub use song::{Song, SongGql, TrackStatus};
-pub use stats::{MemberStat, PlaylistStats};
+pub use stats::{
+    ActiveMemberStat, ArtistStat, HomeReport, MemberStat, PendingTrackInsight,
+    PersonalOverviewStats, PlaylistHealthStat, PlaylistStats,
+};
 pub use user::User;
 pub use vote::{Vote, VoteType};

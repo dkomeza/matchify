@@ -82,6 +82,19 @@ impl Query {
         Ok(playlists.into_iter().map(PlaylistGql::from).collect())
     }
 
+    async fn home_report(&self, ctx: &Context<'_>) -> Result<crate::model::HomeReport> {
+        let auth_user = ctx
+            .data_opt::<AuthUser>()
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let caller_id = mongodb::bson::oid::ObjectId::from_str(&auth_user.user_id)
+            .map_err(|_| AppError::Unexpected)?;
+
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+
+        crate::service::stats::get_home_report(db, caller_id).await
+    }
+
     async fn next_proposal(
         &self,
         ctx: &Context<'_>,

@@ -11,7 +11,10 @@ export default function AppTabs() {
   const pathname = usePathname();
   const hidesTabBar =
     pathname.includes('/playlists/') &&
-    (pathname.endsWith('/vote') || pathname.endsWith('/search'));
+    (pathname.endsWith('/vote') ||
+      pathname.endsWith('/search') ||
+      pathname.endsWith('/create') ||
+      pathname.endsWith('/join'));
 
   return (
     <Tabs>
