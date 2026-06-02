@@ -370,57 +370,75 @@ function PlaylistHeader({
   onStartVoting: () => void;
   onProposeTrack: () => void;
 }) {
+  const description = playlist.description?.trim();
+
   return (
     <View style={styles.header}>
-      <View style={styles.titleRow}>
+      <View style={styles.navRow}>
         <BackButton />
-        <ThemedText type="title" numberOfLines={2} style={styles.title}>
-          {playlist.name}
-        </ThemedText>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`Copy invite code ${playlist.inviteCode}`}
-          onPress={onCopyInviteCode}
-          style={({ pressed }) => [
-            styles.invitePressable,
-            pressed && styles.pressed,
-          ]}
-        >
-          <GlassView
-            glassEffectStyle="clear"
-            colorScheme="dark"
-            style={[styles.inviteChip, copied && styles.inviteChipCopied]}
-          >
-            <ThemedText
-              type="micro"
-              themeColor={copied ? "text" : "textSecondary"}
-              style={styles.inviteLabel}
-            >
-              {copied ? "Copied" : "Invite"}
-            </ThemedText>
-            <ThemedText type="micro" style={styles.inviteCode}>
-              {playlist.inviteCode}
-            </ThemedText>
-          </GlassView>
-        </Pressable>
-        {isPlaylistAdmin ? (
+        <View style={styles.headerActions}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Edit ${playlist.name}`}
-            onPress={onEdit}
+            accessibilityLabel={`Copy invite code ${playlist.inviteCode}`}
+            onPress={onCopyInviteCode}
             style={({ pressed }) => [
-              styles.editPressable,
+              styles.invitePressable,
               pressed && styles.pressed,
             ]}
           >
             <GlassView
               glassEffectStyle="clear"
               colorScheme="dark"
-              style={styles.editButton}
+              style={[styles.inviteChip, copied && styles.inviteChipCopied]}
             >
-              <PencilIcon color={Colors.text} size={18} />
+              <ThemedText
+                type="micro"
+                themeColor={copied ? "text" : "textSecondary"}
+                style={styles.inviteLabel}
+              >
+                {copied ? "Copied" : "Invite"}
+              </ThemedText>
+              <ThemedText type="micro" style={styles.inviteCode}>
+                {playlist.inviteCode}
+              </ThemedText>
             </GlassView>
           </Pressable>
+          {isPlaylistAdmin ? (
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Edit ${playlist.name}`}
+              onPress={onEdit}
+              style={({ pressed }) => [
+                styles.editPressable,
+                pressed && styles.pressed,
+              ]}
+            >
+              <GlassView
+                glassEffectStyle="clear"
+                colorScheme="dark"
+                style={styles.editButton}
+              >
+                <PencilIcon color={Colors.text} size={18} />
+              </GlassView>
+            </Pressable>
+          ) : null}
+        </View>
+      </View>
+
+      <View style={styles.titleBlock}>
+        <ThemedText type="title" numberOfLines={2} style={styles.title}>
+          {playlist.name}
+        </ThemedText>
+
+        {description ? (
+          <ThemedText
+            type="small"
+            themeColor="textSecondary"
+            numberOfLines={3}
+            style={styles.description}
+          >
+            {description}
+          </ThemedText>
         ) : null}
       </View>
 
@@ -620,15 +638,26 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.three,
     gap: Spacing.four,
   },
-  titleRow: {
+  navRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.three,
+  },
+  titleBlock: {
+    gap: Spacing.two,
+  },
+  title: {
+    fontSize: 42,
+    lineHeight: 46,
+  },
+  headerActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.two,
   },
-  title: {
-    flex: 1,
-    fontSize: 42,
-    lineHeight: 46,
+  description: {
+    maxWidth: 620,
   },
   invitePressable: {
     borderRadius: Radius.full,
