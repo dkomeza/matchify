@@ -1,6 +1,7 @@
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
+import { PencilIcon } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   FlatList,
@@ -43,6 +44,7 @@ type PlaylistTrack = TrackRowTrack & {
 type PlaylistDetail = {
   id: string;
   name: string;
+  description?: string | null;
   ownerId: string;
   inviteCode: string;
   voteThreshold: number;
@@ -204,6 +206,10 @@ export default function PlaylistDetailScreen() {
     );
   };
 
+  const openEdit = () => {
+    router.push(`/(tabs)/playlists/${id}/edit`);
+  };
+
   const openSeedSearch = () => {
     if (playlist) {
       setDismissedSeedPromptId(playlist.id);
@@ -264,9 +270,11 @@ export default function PlaylistDetailScreen() {
             ListHeaderComponent={
               <PlaylistHeader
                 playlist={playlist}
+                isPlaylistAdmin={isPlaylistAdmin}
                 isReadyForVoting={isReadyForVoting}
                 copied={copied}
                 onCopyInviteCode={copyInviteCode}
+                onEdit={openEdit}
                 onStartVoting={startVoting}
                 onProposeTrack={proposeTrack}
               />
@@ -345,16 +353,20 @@ function ApprovedTrackRow({
 
 function PlaylistHeader({
   playlist,
+  isPlaylistAdmin,
   isReadyForVoting,
   copied,
   onCopyInviteCode,
+  onEdit,
   onStartVoting,
   onProposeTrack,
 }: {
   playlist: PlaylistDetail;
+  isPlaylistAdmin: boolean;
   isReadyForVoting: boolean;
   copied: boolean;
   onCopyInviteCode: () => void;
+  onEdit: () => void;
   onStartVoting: () => void;
   onProposeTrack: () => void;
 }) {
@@ -391,6 +403,25 @@ function PlaylistHeader({
             </ThemedText>
           </GlassView>
         </Pressable>
+        {isPlaylistAdmin ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`Edit ${playlist.name}`}
+            onPress={onEdit}
+            style={({ pressed }) => [
+              styles.editPressable,
+              pressed && styles.pressed,
+            ]}
+          >
+            <GlassView
+              glassEffectStyle="clear"
+              colorScheme="dark"
+              style={styles.editButton}
+            >
+              <PencilIcon color={Colors.text} size={18} />
+            </GlassView>
+          </Pressable>
+        ) : null}
       </View>
 
       <View style={styles.section}>
@@ -622,6 +653,19 @@ const styles = StyleSheet.create({
   },
   inviteCode: {
     letterSpacing: 0,
+  },
+  editPressable: {
+    borderRadius: Radius.full,
+  },
+  editButton: {
+    width: 44,
+    height: 44,
+    borderRadius: Radius.full,
+    borderWidth: 1,
+    borderColor: Colors.glassBorder,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
   section: {
     gap: Spacing.three,

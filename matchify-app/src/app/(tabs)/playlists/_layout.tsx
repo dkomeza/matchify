@@ -8,6 +8,14 @@ export default function PlaylistsLayout() {
       <Stack.Screen name="[id]/vote" />
       <Stack.Screen name="[id]/search" />
       <Stack.Screen
+        name="[id]/edit"
+        options={{
+          animation: 'slide_from_bottom',
+          contentStyle: { backgroundColor: 'transparent' },
+          presentation: 'transparentModal',
+        }}
+      />
+      <Stack.Screen
         name="create"
         options={{
           animation: 'slide_from_bottom',

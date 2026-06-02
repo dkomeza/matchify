@@ -21,6 +21,7 @@ export const PLAYLIST_DETAIL_QUERY = gql`
     playlist(id: $id) {
       id
       name
+      description
       ownerId
       inviteCode
       voteThreshold
@@ -41,6 +42,24 @@ export const PLAYLIST_DETAIL_QUERY = gql`
       }
       proposals {
         id
+      }
+    }
+  }
+`
+
+export const UPDATE_PLAYLIST_MUTATION = gql`
+  mutation UpdatePlaylist($id: String!, $input: UpdatePlaylistInput!) {
+    updatePlaylist(id: $id, input: $input) {
+      id
+      name
+      description
+      ownerId
+      inviteCode
+      voteThreshold
+      members {
+        id
+        displayName
+        profileImageUrl
       }
     }
   }
