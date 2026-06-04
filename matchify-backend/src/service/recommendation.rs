@@ -15,7 +15,7 @@ use chrono::{DateTime, Duration, Utc};
 use futures::TryStreamExt;
 use mongodb::{
     Client, Database,
-    bson::{doc, oid::ObjectId},
+    bson::{doc, oid::ObjectId, to_bson},
 };
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
@@ -348,17 +348,24 @@ async fn cached_or_fetch_candidates(
     let candidates = lastfm_client
         .similar_tracks(&seed.artist, &seed.title, SIMILAR_TRACK_LIMIT)
         .await?;
-    let entry = RecommendationCacheEntry {
-        id: ObjectId::new(),
-        seed_key: seed_key.clone(),
-        seed_artist: seed.artist.clone(),
-        seed_title: seed.title.clone(),
-        candidates: candidates.clone(),
-        fetched_at: Utc::now(),
-    };
+    let candidates_bson = to_bson(&candidates).map_err(|_| AppError::Unexpected)?;
 
     cache
-        .replace_one(doc! { "seed_key": &seed_key }, &entry)
+        .update_one(
+            doc! { "seed_key": &seed_key },
+            doc! {
+                "$set": {
+                    "seed_key": &seed_key,
+                    "seed_artist": &seed.artist,
+                    "seed_title": &seed.title,
+                    "candidates": candidates_bson,
+                    "fetched_at": mongodb::bson::DateTime::from_millis(Utc::now().timestamp_millis()),
+                },
+                "$setOnInsert": {
+                    "_id": ObjectId::new(),
+                },
+            },
+        )
         .upsert(true)
         .await?;
 
@@ -374,24 +381,26 @@ async fn record_interaction(
     action: RecommendationAction,
 ) -> Result<()> {
     let interactions = db.collection::<RecommendationInteraction>("recommendation_interactions");
-    let interaction = RecommendationInteraction {
-        id: ObjectId::new(),
-        playlist_id,
-        user_id,
-        spotify_track_id: spotify_track_id.to_string(),
-        track_key: track_key.to_string(),
-        action,
-        created_at: Utc::now(),
-    };
-
     interactions
-        .replace_one(
+        .update_one(
             doc! {
                 "playlist_id": playlist_id,
                 "user_id": user_id,
                 "spotify_track_id": spotify_track_id,
             },
-            &interaction,
+            doc! {
+                "$set": {
+                    "playlist_id": playlist_id,
+                    "user_id": user_id,
+                    "spotify_track_id": spotify_track_id,
+                    "track_key": track_key,
+                    "action": action.to_string(),
+                    "created_at": mongodb::bson::DateTime::from_millis(Utc::now().timestamp_millis()),
+                },
+                "$setOnInsert": {
+                    "_id": ObjectId::new(),
+                },
+            },
         )
         .upsert(true)
         .await?;

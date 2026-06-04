@@ -192,6 +192,12 @@ export default function PlaylistDetailScreen() {
   const isPlaylistAdmin = Boolean(
     playlist && userId && playlist.ownerId === userId,
   );
+
+  console.log(
+    playlist?.state,
+    playlist?.tracks.length,
+    playlist?.proposals.length,
+  );
   const isSeeding = playlist?.state === "SEEDING";
   const isReadyForVoting = (playlist?.proposals.length ?? 0) > 0;
   const showInactivePlaceholder = Boolean(
@@ -649,24 +655,24 @@ function PlaylistHeader({
         </ScrollView>
       </View>
 
-      {isReadyForVoting ? (
-        <View style={styles.actions}>
+      <View style={styles.actions}>
+        {isReadyForVoting ? (
           <PrimaryButton onPress={onStartVoting}>Start Voting</PrimaryButton>
-          <Pressable
-            accessibilityRole="button"
-            onPress={onProposeTrack}
-            style={({ pressed }) => pressed && styles.pressed}
+        ) : null}
+        <Pressable
+          accessibilityRole="button"
+          onPress={onProposeTrack}
+          style={({ pressed }) => pressed && styles.pressed}
+        >
+          <GlassView
+            glassEffectStyle="clear"
+            colorScheme="dark"
+            style={styles.secondaryAction}
           >
-            <GlassView
-              glassEffectStyle="clear"
-              colorScheme="dark"
-              style={styles.secondaryAction}
-            >
-              <ThemedText type="smallBold">Propose a track</ThemedText>
-            </GlassView>
-          </Pressable>
-        </View>
-      ) : null}
+            <ThemedText type="smallBold">Propose a track</ThemedText>
+          </GlassView>
+        </Pressable>
+      </View>
 
       <ThemedText
         type="smallBold"
@@ -716,10 +722,7 @@ function SeedTracksPrompt({
           <Pressable
             accessibilityRole="button"
             onPress={onDismiss}
-            style={({ pressed }) => [
-              styles.modalDismiss,
-              pressed && styles.pressed,
-            ]}
+            style={[styles.modalDismiss]}
           >
             <ThemedText type="smallBold" themeColor="textSecondary">
               Not now
@@ -1013,10 +1016,8 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   modalDismiss: {
-    minHeight: 44,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: Radius.full,
   },
   loadingWrap: {
     flex: 1,

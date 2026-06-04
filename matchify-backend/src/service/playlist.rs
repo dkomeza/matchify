@@ -114,16 +114,6 @@ pub async fn create(
 }
 
 /// Join an existing playlist using its invite code.
-///
-/// * Looks up the playlist by `invite_code` (unique-indexed field).
-/// * If `caller_id` is already in `member_ids` the document is returned as-is
-///   (idempotent — no error, no write).
-/// * Otherwise `$addToSet` the caller, then recalculate
-///   `vote_threshold = ceil(new_member_count / 2)` **only** when the playlist
-///   is still using the default formula (i.e. `vote_threshold` equals
-///   `ceil(old_member_count / 2)`). User-supplied custom thresholds are
-///   preserved.
-///
 /// Returns `NOT_FOUND` when the invite code does not match any playlist.
 pub async fn join(db: &Database, caller_id: ObjectId, invite_code: &str) -> Result<Playlist> {
     use mongodb::options::{FindOneAndUpdateOptions, ReturnDocument};
@@ -226,12 +216,7 @@ pub struct UpdatePlaylistInput {
     pub vote_threshold: Option<i32>,
 }
 
-/// Partially update a playlist's metadata.
-///
-/// * Only the owner may call this (`owner_id == caller_id`).
-/// * Only fields present in `input` are written.
-/// * `vote_threshold` must be ≥ 1 and ≤ current member count.
-///
+
 /// Returns the updated document.
 pub async fn update(
     db: &Database,
@@ -324,9 +309,6 @@ pub async fn update(
 // Delete
 // ---------------------------------------------------------------------------
 
-/// Delete a playlist and all dependent songs/votes.
-///
-/// Only the playlist owner may delete the playlist.
 pub async fn delete(db: &Database, caller_id: ObjectId, playlist_id: ObjectId) -> Result<bool> {
     let playlists = db.collection::<Playlist>("playlists");
     let songs = db.collection::<Song>("songs");
@@ -369,14 +351,6 @@ pub async fn delete(db: &Database, caller_id: ObjectId, playlist_id: ObjectId) -
 // Leave
 // ---------------------------------------------------------------------------
 
-/// Remove `caller_id` from `member_ids`.
-///
-/// * The owner cannot leave — they must transfer ownership or delete the
-///   playlist instead.
-/// * If the remaining threshold was auto-managed (i.e. equals `ceil(old/2)`),
-///   it is recalculated to `ceil(new/2)`. Custom thresholds are clamped down
-///   to the new member count if they would otherwise exceed it.
-///
 /// Returns `true` on success.
 pub async fn leave(db: &Database, caller_id: ObjectId, playlist_id: ObjectId) -> Result<bool> {
     use mongodb::options::{FindOneAndUpdateOptions, ReturnDocument};
