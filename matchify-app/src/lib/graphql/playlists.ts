@@ -65,6 +65,18 @@ export const UPDATE_PLAYLIST_MUTATION = gql`
   }
 `
 
+export const DELETE_PLAYLIST_MUTATION = gql`
+  mutation DeletePlaylist($id: String!) {
+    deletePlaylist(id: $id)
+  }
+`
+
+export const DELETE_TRACK_MUTATION = gql`
+  mutation DeleteTrack($trackId: ID!) {
+    deleteTrack(trackId: $trackId)
+  }
+`
+
 export const TRACK_APPROVED_SUBSCRIPTION = gql`
   subscription TrackApproved($playlistId: ID!) {
     trackApproved(playlistId: $playlistId) {

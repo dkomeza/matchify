@@ -1,14 +1,17 @@
+use crate::config::AppConfig;
 use crate::error::{AppError, Result};
 use crate::events::{EventBroker, PlaylistEvent};
 use crate::model::playlist::Playlist;
 use crate::model::song::{Song, SongGql, TrackStatus};
 use crate::model::user::User;
-use crate::service::spotify::{SpotifyClient, get_valid_access_token};
-use crate::config::AppConfig;
-use chrono::Utc;
-use mongodb::{bson::doc, bson::oid::ObjectId, Client, Database, error::TRANSIENT_TRANSACTION_ERROR, options::TransactionOptions};
-use futures::StreamExt;
 use crate::model::vote::{Vote, VoteType};
+use crate::service::spotify::{SpotifyClient, get_valid_access_token};
+use chrono::Utc;
+use futures::StreamExt;
+use mongodb::{
+    Client, Database, bson::doc, bson::oid::ObjectId, error::TRANSIENT_TRANSACTION_ERROR,
+    options::TransactionOptions,
+};
 
 const MAX_PENDING_PROPOSALS_PER_USER: u64 = 10;
 
@@ -72,7 +75,9 @@ pub async fn add_initial_tracks(
         ));
     }
 
-    let spotify_tracks = spotify_client.get_tracks(spotify_track_ids, access_token).await?;
+    let spotify_tracks = spotify_client
+        .get_tracks(spotify_track_ids, access_token)
+        .await?;
 
     let mut inserted_songs = Vec::new();
     let songs_coll = db.collection::<Song>("songs");
@@ -153,11 +158,14 @@ pub async fn next_unvoted(
         },
         doc! {
             "$limit": 1
-        }
+        },
     ];
 
-    let mut cursor = songs_coll.aggregate(pipeline).await.map_err(AppError::Database)?;
-    
+    let mut cursor = songs_coll
+        .aggregate(pipeline)
+        .await
+        .map_err(AppError::Database)?;
+
     if let Some(result) = cursor.next().await {
         let doc = result.map_err(AppError::Database)?;
         let song: Song = mongodb::bson::from_document(doc).map_err(|_| AppError::Unexpected)?;
@@ -192,7 +200,9 @@ pub async fn vote_on_track(
         .ok_or_else(|| AppError::NotFound("Playlist not found".to_string()))?;
 
     if !playlist.member_ids.contains(&user_id) {
-        return Err(AppError::Forbidden("Not a member of this playlist".to_string()));
+        return Err(AppError::Forbidden(
+            "Not a member of this playlist".to_string(),
+        ));
     }
 
     let mut session = client.start_session().await.map_err(AppError::Database)?;
@@ -204,7 +214,11 @@ pub async fn vote_on_track(
 
     let mut retries = 3;
     loop {
-        session.start_transaction().with_options(options.clone()).await.map_err(AppError::Database)?;
+        session
+            .start_transaction()
+            .with_options(options.clone())
+            .await
+            .map_err(AppError::Database)?;
 
         let vote = Vote {
             id: ObjectId::new(),
@@ -219,7 +233,9 @@ pub async fn vote_on_track(
             Ok(_) => {}
             Err(e) if is_duplicate_key_error(&e) => {
                 let _ = session.abort_transaction().await;
-                return Err(AppError::Validation("You have already voted on this track".to_string()));
+                return Err(AppError::Validation(
+                    "You have already voted on this track".to_string(),
+                ));
             }
             Err(e) => {
                 let _ = session.abort_transaction().await;
@@ -235,10 +251,7 @@ pub async fn vote_on_track(
 
         if vote_type == VoteType::Like {
             let update_result = songs_coll
-                .find_one_and_update(
-                    doc! { "_id": t_id },
-                    doc! { "$inc": { "like_count": 1 } },
-                )
+                .find_one_and_update(doc! { "_id": t_id }, doc! { "$inc": { "like_count": 1 } })
                 .return_document(mongodb::options::ReturnDocument::After)
                 .session(&mut session)
                 .await;
@@ -247,7 +260,9 @@ pub async fn vote_on_track(
                 Ok(Some(s)) => s,
                 Ok(None) => {
                     let _ = session.abort_transaction().await;
-                    return Err(AppError::NotFound("Track not found during update".to_string()));
+                    return Err(AppError::NotFound(
+                        "Track not found during update".to_string(),
+                    ));
                 }
                 Err(e) => {
                     let _ = session.abort_transaction().await;
@@ -397,11 +412,51 @@ pub async fn propose_track(
             );
             Ok(song)
         }
-        Err(e) if is_duplicate_key_error(&e) => {
-            Err(AppError::Validation("Track already proposed in this playlist".to_string()))
-        }
+        Err(e) if is_duplicate_key_error(&e) => Err(AppError::Validation(
+            "Track already proposed in this playlist".to_string(),
+        )),
         Err(e) => Err(AppError::Database(e)),
     }
+}
+
+pub async fn delete_track(db: &Database, caller_id: ObjectId, track_id: ObjectId) -> Result<bool> {
+    let songs = db.collection::<Song>("songs");
+    let playlists = db.collection::<Playlist>("playlists");
+    let votes = db.collection::<Vote>("votes");
+
+    let song = songs
+        .find_one(doc! { "_id": track_id })
+        .await?
+        .ok_or_else(|| AppError::NotFound("Track not found".to_string()))?;
+
+    let playlist = playlists
+        .find_one(doc! { "_id": song.playlist_id })
+        .await?
+        .ok_or_else(|| AppError::NotFound("Playlist not found".to_string()))?;
+
+    if playlist.owner_id != caller_id {
+        return Err(AppError::Forbidden(
+            "Only the playlist owner can delete tracks".to_string(),
+        ));
+    }
+
+    votes
+        .delete_many(doc! { "song_id": track_id })
+        .await
+        .map_err(AppError::Database)?;
+    let result = songs
+        .delete_one(doc! { "_id": track_id })
+        .await
+        .map_err(AppError::Database)?;
+
+    tracing::info!(
+        track_id = %track_id,
+        playlist_id = %song.playlist_id,
+        caller_id = %caller_id,
+        "deleteTrack: track and votes deleted"
+    );
+
+    Ok(result.deleted_count == 1)
 }
 
 async fn sync_approved_track_to_spotify(

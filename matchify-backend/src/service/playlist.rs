@@ -1,14 +1,14 @@
 use chrono::Utc;
 use mongodb::{
-    bson::{doc, oid::ObjectId},
     Database,
+    bson::{doc, oid::ObjectId},
 };
 use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
+use rand::{Rng, thread_rng};
 
 use crate::{
     error::{AppError, Result},
-    model::playlist::Playlist,
+    model::{playlist::Playlist, song::Song, vote::Vote},
 };
 
 const INVITE_CODE_LEN: usize = 8;
@@ -134,7 +134,9 @@ pub async fn join(db: &Database, caller_id: ObjectId, invite_code: &str) -> Resu
     let playlist = collection
         .find_one(doc! { "invite_code": invite_code })
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("No playlist with invite code '{invite_code}'")))?;
+        .ok_or_else(|| {
+            AppError::NotFound(format!("No playlist with invite code '{invite_code}'"))
+        })?;
 
     // 2. Idempotency — already a member, nothing to do.
     if playlist.member_ids.contains(&caller_id) {
@@ -202,13 +204,11 @@ pub async fn find_by_id(db: &Database, id: ObjectId) -> Result<Option<Playlist>>
 
 /// Return all playlists where `user_id` appears in `member_ids`.
 pub async fn find_by_member(db: &Database, user_id: ObjectId) -> Result<Vec<Playlist>> {
-    use mongodb::bson::doc;
     use futures::TryStreamExt;
+    use mongodb::bson::doc;
 
     let collection = db.collection::<Playlist>("playlists");
-    let cursor = collection
-        .find(doc! { "member_ids": user_id })
-        .await?;
+    let cursor = collection.find(doc! { "member_ids": user_id }).await?;
 
     let playlists: Vec<Playlist> = cursor.try_collect().await?;
     Ok(playlists)
@@ -318,6 +318,51 @@ pub async fn update(
     );
 
     Ok(updated)
+}
+
+// ---------------------------------------------------------------------------
+// Delete
+// ---------------------------------------------------------------------------
+
+/// Delete a playlist and all dependent songs/votes.
+///
+/// Only the playlist owner may delete the playlist.
+pub async fn delete(db: &Database, caller_id: ObjectId, playlist_id: ObjectId) -> Result<bool> {
+    let playlists = db.collection::<Playlist>("playlists");
+    let songs = db.collection::<Song>("songs");
+    let votes = db.collection::<Vote>("votes");
+
+    let playlist = playlists
+        .find_one(doc! { "_id": playlist_id })
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Playlist {playlist_id} not found")))?;
+
+    if playlist.owner_id != caller_id {
+        return Err(AppError::Forbidden(
+            "Only the playlist owner can delete it".to_string(),
+        ));
+    }
+
+    votes
+        .delete_many(doc! { "playlist_id": playlist_id })
+        .await
+        .map_err(AppError::Database)?;
+    songs
+        .delete_many(doc! { "playlist_id": playlist_id })
+        .await
+        .map_err(AppError::Database)?;
+    let result = playlists
+        .delete_one(doc! { "_id": playlist_id })
+        .await
+        .map_err(AppError::Database)?;
+
+    tracing::info!(
+        playlist_id = %playlist_id,
+        caller_id = %caller_id,
+        "deletePlaylist: playlist and dependent rows deleted"
+    );
+
+    Ok(result.deleted_count == 1)
 }
 
 // ---------------------------------------------------------------------------
@@ -486,7 +531,6 @@ mod tests {
         super::build_fake_db().await
     }
 
-
     #[tokio::test]
     #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
     async fn create_playlist_integration() {
@@ -510,10 +554,12 @@ mod tests {
         assert_eq!(playlist.member_ids, vec![owner_id]);
         assert_eq!(playlist.vote_threshold, 1);
         assert_eq!(playlist.invite_code.len(), INVITE_CODE_LEN);
-        assert!(playlist
-            .invite_code
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric()));
+        assert!(
+            playlist
+                .invite_code
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric())
+        );
         assert!(playlist.spotify_playlist_id.is_none());
 
         // Clean up
@@ -527,9 +573,7 @@ mod tests {
     #[ignore = "requires a running MongoDB instance (set MONGO_URI)"]
     async fn join_invalid_invite_code_returns_not_found() {
         let db = build_fake_db().await;
-        let err = join(&db, ObjectId::new(), "NOTEXIST")
-            .await
-            .unwrap_err();
+        let err = join(&db, ObjectId::new(), "NOTEXIST").await.unwrap_err();
         assert!(
             matches!(err, AppError::NotFound(_)),
             "Expected NotFound error, got {err:?}"
@@ -969,7 +1013,9 @@ mod integration_tests {
         assert_eq!(playlist.vote_threshold, 2); // ceil(3/2)
 
         // member_a leaves → 2 members, threshold = ceil(2/2) = 1
-        let result = leave(&db, member_a, playlist.id).await.expect("leave should succeed");
+        let result = leave(&db, member_a, playlist.id)
+            .await
+            .expect("leave should succeed");
         assert!(result, "leave should return true");
 
         let updated = find_by_id(&db, playlist.id)
@@ -978,7 +1024,10 @@ mod integration_tests {
             .expect("playlist should still exist");
 
         assert_eq!(updated.member_ids.len(), 2);
-        assert!(!updated.member_ids.contains(&member_a), "member_a should be gone");
+        assert!(
+            !updated.member_ids.contains(&member_a),
+            "member_a should be gone"
+        );
         assert_eq!(updated.vote_threshold, 1); // ceil(2/2)
 
         // Cleanup
@@ -1104,4 +1153,3 @@ mod integration_tests {
         col.delete_one(doc! { "_id": p2.id }).await.unwrap();
     }
 }
-

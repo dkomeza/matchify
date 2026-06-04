@@ -1,9 +1,10 @@
 import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { router, useLocalSearchParams } from "expo-router";
-import { PencilIcon } from "lucide-react-native";
+import { PencilIcon, Trash2Icon } from "lucide-react-native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -11,13 +12,14 @@ import {
   StyleSheet,
   View,
 } from "react-native";
+import { Swipeable } from "react-native-gesture-handler";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useQuery, useSubscription } from "urql";
+import { useClient, useMutation, useQuery, useSubscription } from "urql";
 
 import { GlassView } from "@/components/glass-view";
 import {
@@ -31,7 +33,10 @@ import { BackButton } from "@/components/ui/back-button";
 import { PrimaryButton } from "@/components/ui/primary-button";
 import { Colors, Radius, ScreenPadding, Spacing } from "@/constants/theme";
 import {
+  DELETE_PLAYLIST_MUTATION,
+  DELETE_TRACK_MUTATION,
   PLAYLIST_DETAIL_QUERY,
+  refreshMyPlaylists,
   TRACK_APPROVED_SUBSCRIPTION,
 } from "@/lib/graphql/playlists";
 import { useAuthStore } from "@/store/auth";
@@ -62,6 +67,22 @@ type TrackApprovedData = {
   trackApproved?: PlaylistTrack | null;
 };
 
+type DeletePlaylistData = {
+  deletePlaylist: boolean;
+};
+
+type DeletePlaylistVariables = {
+  id: string;
+};
+
+type DeleteTrackData = {
+  deleteTrack: boolean;
+};
+
+type DeleteTrackVariables = {
+  trackId: string;
+};
+
 const byApprovalTime = (left: PlaylistTrack, right: PlaylistTrack) => {
   const leftTime = left.createdAt ? Date.parse(left.createdAt) : 0;
   const rightTime = right.createdAt ? Date.parse(right.createdAt) : 0;
@@ -84,13 +105,25 @@ const mergeTracks = (
 
 export default function PlaylistDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
+  const client = useClient();
   const userId = useAuthStore((state) => state.user?.id);
   const [copied, setCopied] = useState(false);
   const [liveTracks, setLiveTracks] = useState<PlaylistTrack[]>([]);
+  const [hiddenTrackIds, setHiddenTrackIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [deletingTrackIds, setDeletingTrackIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [newTrackIds, setNewTrackIds] = useState<Set<string>>(() => new Set());
   const [approvalToast, setApprovalToast] = useState<string | null>(null);
-  const [seedPromptPlaylistId, setSeedPromptPlaylistId] = useState<string | null>(null);
-  const [dismissedSeedPromptId, setDismissedSeedPromptId] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [seedPromptPlaylistId, setSeedPromptPlaylistId] = useState<
+    string | null
+  >(null);
+  const [dismissedSeedPromptId, setDismissedSeedPromptId] = useState<
+    string | null
+  >(null);
   const copiedTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const toastTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const subscriptionStatus = useSubscriptionConnectionStatus();
@@ -100,6 +133,14 @@ export default function PlaylistDetailScreen() {
       variables: { id },
       pause: !id,
     });
+  const [{ fetching: deletingPlaylist }, executeDeletePlaylist] = useMutation<
+    DeletePlaylistData,
+    DeletePlaylistVariables
+  >(DELETE_PLAYLIST_MUTATION);
+  const [, executeDeleteTrack] = useMutation<
+    DeleteTrackData,
+    DeleteTrackVariables
+  >(DELETE_TRACK_MUTATION);
 
   useSubscription<TrackApprovedData, PlaylistTrack[], { playlistId: string }>(
     {
@@ -140,20 +181,30 @@ export default function PlaylistDetailScreen() {
 
   const playlist = data?.playlist;
   const tracks = useMemo(
-    () => mergeTracks(playlist?.tracks ?? [], liveTracks),
-    [liveTracks, playlist?.tracks],
+    () =>
+      mergeTracks(playlist?.tracks ?? [], liveTracks).filter(
+        (track) => !hiddenTrackIds.has(track.id),
+      ),
+    [hiddenTrackIds, liveTracks, playlist?.tracks],
   );
   const isInitialLoading = fetching && !data;
   const isReconnecting = subscriptionStatus === "reconnecting";
-  const isPlaylistAdmin = Boolean(playlist && userId && playlist.ownerId === userId);
+  const isPlaylistAdmin = Boolean(
+    playlist && userId && playlist.ownerId === userId,
+  );
   const isSeeding = playlist?.state === "SEEDING";
   const isReadyForVoting = (playlist?.proposals.length ?? 0) > 0;
-  const showInactivePlaceholder = Boolean(playlist && !isPlaylistAdmin && isSeeding);
+  const showInactivePlaceholder = Boolean(
+    playlist && !isPlaylistAdmin && isSeeding,
+  );
 
   useEffect(() => {
     setLiveTracks([]);
+    setHiddenTrackIds(new Set());
+    setDeletingTrackIds(new Set());
     setNewTrackIds(new Set());
     setApprovalToast(null);
+    setDeleteError(null);
     setSeedPromptPlaylistId(null);
     setDismissedSeedPromptId(null);
   }, [id]);
@@ -210,6 +261,38 @@ export default function PlaylistDetailScreen() {
     router.push(`/(tabs)/playlists/${id}/edit`);
   };
 
+  const deletePlaylist = async () => {
+    if (!playlist || deletingPlaylist) return;
+
+    setDeleteError(null);
+    const result = await executeDeletePlaylist({ id: playlist.id });
+
+    if (result.error || !result.data?.deletePlaylist) {
+      setDeleteError(result.error?.message ?? "Playlist could not be deleted.");
+      return;
+    }
+
+    await refreshMyPlaylists(client);
+    router.replace("/playlists");
+  };
+
+  const confirmDeletePlaylist = () => {
+    if (!playlist) return;
+
+    Alert.alert(
+      "Delete playlist?",
+      `This will remove "${playlist.name}" and all songs in it.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => void deletePlaylist(),
+        },
+      ],
+    );
+  };
+
   const openSeedSearch = () => {
     if (playlist) {
       setDismissedSeedPromptId(playlist.id);
@@ -229,7 +312,39 @@ export default function PlaylistDetailScreen() {
     router.push(`/(tabs)/playlists/${id}/search?mode=propose`);
   };
 
+  const deleteTrack = async (track: PlaylistTrack) => {
+    setDeleteError(null);
+    setDeletingTrackIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+      nextIds.add(track.id);
+      return nextIds;
+    });
+
+    const result = await executeDeleteTrack({ trackId: track.id });
+
+    setDeletingTrackIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+      nextIds.delete(track.id);
+      return nextIds;
+    });
+
+    if (result.error || !result.data?.deleteTrack) {
+      setDeleteError(result.error?.message ?? "Track could not be deleted.");
+      return;
+    }
+
+    setHiddenTrackIds((currentIds) => {
+      const nextIds = new Set(currentIds);
+      nextIds.add(track.id);
+      return nextIds;
+    });
+    setLiveTracks((currentTracks) =>
+      currentTracks.filter((currentTrack) => currentTrack.id !== track.id),
+    );
+  };
+
   const refresh = () => {
+    setDeleteError(null);
     void executeQuery({ requestPolicy: "network-only" });
   };
 
@@ -249,6 +364,9 @@ export default function PlaylistDetailScreen() {
               <ApprovedTrackRow
                 track={item}
                 isNew={newTrackIds.has(item.id)}
+                canDelete={isPlaylistAdmin}
+                isDeleting={deletingTrackIds.has(item.id)}
+                onDelete={() => void deleteTrack(item)}
                 onAnimated={() => {
                   setNewTrackIds((currentIds) => {
                     if (!currentIds.has(item.id)) return currentIds;
@@ -273,11 +391,20 @@ export default function PlaylistDetailScreen() {
                 isPlaylistAdmin={isPlaylistAdmin}
                 isReadyForVoting={isReadyForVoting}
                 copied={copied}
+                deletingPlaylist={deletingPlaylist}
                 onCopyInviteCode={copyInviteCode}
                 onEdit={openEdit}
+                onDelete={confirmDeletePlaylist}
                 onStartVoting={startVoting}
                 onProposeTrack={proposeTrack}
               />
+            }
+            ListFooterComponent={
+              deleteError ? (
+                <ThemedText selectable type="small" style={styles.deleteError}>
+                  {deleteError}
+                </ThemedText>
+              ) : null
             }
             ListEmptyComponent={
               showInactivePlaceholder ? <InactivePlaylist /> : <EmptyTracks />
@@ -322,10 +449,16 @@ export default function PlaylistDetailScreen() {
 function ApprovedTrackRow({
   track,
   isNew,
+  canDelete,
+  isDeleting,
+  onDelete,
   onAnimated,
 }: {
   track: PlaylistTrack;
   isNew: boolean;
+  canDelete: boolean;
+  isDeleting: boolean;
+  onDelete: () => void;
   onAnimated: () => void;
 }) {
   const translateX = useSharedValue(isNew ? 32 : 0);
@@ -344,9 +477,43 @@ function ApprovedTrackRow({
     transform: [{ translateX: translateX.value }],
   }));
 
+  const renderRightActions = () => (
+    <View style={styles.deleteTrackActionWrap}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={`Delete ${track.title}`}
+        disabled={isDeleting}
+        onPress={onDelete}
+        style={({ pressed }) => [
+          pressed && styles.deleteTrackActionPressed,
+          isDeleting && styles.disabledAction,
+          styles.deleteTrackAction,
+        ]}
+      >
+        <Trash2Icon color={Colors.text} size={26} />
+      </Pressable>
+    </View>
+  );
+
+  const row = <TrackRow track={track} />;
+
   return (
     <Animated.View style={animatedStyle}>
-      <TrackRow track={track} />
+      {canDelete ? (
+        <Swipeable
+          enabled={!isDeleting}
+          friction={2}
+          overshootRight={false}
+          renderRightActions={renderRightActions}
+          rightThreshold={36}
+          containerStyle={styles.swipeContainer}
+          childrenContainerStyle={styles.swipeForeground}
+        >
+          {row}
+        </Swipeable>
+      ) : (
+        row
+      )}
     </Animated.View>
   );
 }
@@ -356,8 +523,10 @@ function PlaylistHeader({
   isPlaylistAdmin,
   isReadyForVoting,
   copied,
+  deletingPlaylist,
   onCopyInviteCode,
   onEdit,
+  onDelete,
   onStartVoting,
   onProposeTrack,
 }: {
@@ -365,8 +534,10 @@ function PlaylistHeader({
   isPlaylistAdmin: boolean;
   isReadyForVoting: boolean;
   copied: boolean;
+  deletingPlaylist: boolean;
   onCopyInviteCode: () => void;
   onEdit: () => void;
+  onDelete: () => void;
   onStartVoting: () => void;
   onProposeTrack: () => void;
 }) {
@@ -404,23 +575,44 @@ function PlaylistHeader({
             </GlassView>
           </Pressable>
           {isPlaylistAdmin ? (
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel={`Edit ${playlist.name}`}
-              onPress={onEdit}
-              style={({ pressed }) => [
-                styles.editPressable,
-                pressed && styles.pressed,
-              ]}
-            >
-              <GlassView
-                glassEffectStyle="clear"
-                colorScheme="dark"
-                style={styles.editButton}
+            <>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Edit ${playlist.name}`}
+                onPress={onEdit}
+                style={({ pressed }) => [
+                  styles.editPressable,
+                  pressed && styles.pressed,
+                ]}
               >
-                <PencilIcon color={Colors.text} size={18} />
-              </GlassView>
-            </Pressable>
+                <GlassView
+                  glassEffectStyle="clear"
+                  colorScheme="dark"
+                  style={styles.editButton}
+                >
+                  <PencilIcon color={Colors.text} size={18} />
+                </GlassView>
+              </Pressable>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel={`Delete ${playlist.name}`}
+                disabled={deletingPlaylist}
+                onPress={onDelete}
+                style={({ pressed }) => [
+                  styles.editPressable,
+                  pressed && styles.pressed,
+                  deletingPlaylist && styles.disabledAction,
+                ]}
+              >
+                <GlassView
+                  glassEffectStyle="clear"
+                  colorScheme="dark"
+                  style={[styles.editButton, styles.deletePlaylistButton]}
+                >
+                  <Trash2Icon color={Colors.skip} size={18} />
+                </GlassView>
+              </Pressable>
+            </>
           ) : null}
         </View>
       </View>
@@ -524,7 +716,10 @@ function SeedTracksPrompt({
           <Pressable
             accessibilityRole="button"
             onPress={onDismiss}
-            style={({ pressed }) => [styles.modalDismiss, pressed && styles.pressed]}
+            style={({ pressed }) => [
+              styles.modalDismiss,
+              pressed && styles.pressed,
+            ]}
           >
             <ThemedText type="smallBold" themeColor="textSecondary">
               Not now
@@ -696,6 +891,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     overflow: "hidden",
   },
+  deletePlaylistButton: {
+    borderColor: Colors.skip,
+    backgroundColor: Colors.skipGlow,
+  },
   section: {
     gap: Spacing.three,
   },
@@ -723,6 +922,36 @@ const styles = StyleSheet.create({
     height: Spacing.three,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: Colors.glassBorder,
+  },
+  swipeContainer: {
+    width: "100%",
+    alignSelf: "stretch",
+    overflow: "hidden",
+  },
+  swipeForeground: {
+    minHeight: 64,
+    width: "100%",
+    backgroundColor: Colors.background,
+  },
+  deleteTrackActionWrap: {
+    marginLeft: Spacing.two,
+    borderTopRightRadius: Radius.sm,
+    borderBottomRightRadius: Radius.sm,
+    overflow: "hidden",
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: Colors.skip,
+    paddingHorizontal: Spacing.three,
+  },
+  deleteTrackAction: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: Spacing.two,
+    flex: 1,
+    backgroundColor: Colors.textSecondary,
+  },
+  deleteTrackActionPressed: {
+    opacity: 0.82,
   },
   liveStatus: {
     position: "absolute",
@@ -755,6 +984,13 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.78,
     transform: [{ scale: 0.99 }],
+  },
+  disabledAction: {
+    opacity: 0.55,
+  },
+  deleteError: {
+    marginTop: Spacing.three,
+    color: Colors.skip,
   },
   modalBackdrop: {
     flex: 1,

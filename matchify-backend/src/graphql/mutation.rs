@@ -226,6 +226,22 @@ impl Mutation {
         playlist_service::leave(db, caller_id, pid).await
     }
 
+    async fn delete_playlist(&self, ctx: &Context<'_>, id: String) -> Result<bool> {
+        let auth_user = ctx
+            .data_opt::<AuthUser>()
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let caller_id =
+            ObjectId::parse_str(&auth_user.user_id).map_err(|_| AppError::Unexpected)?;
+
+        let playlist_id = ObjectId::parse_str(&id)
+            .map_err(|_| AppError::Validation("Invalid playlist ID format".to_string()))?;
+
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+
+        playlist_service::delete(db, caller_id, playlist_id).await
+    }
+
     async fn add_initial_tracks(
         &self,
         ctx: &Context<'_>,
@@ -372,6 +388,22 @@ impl Mutation {
         .await?;
 
         Ok(crate::model::song::SongGql::from(song))
+    }
+
+    async fn delete_track(&self, ctx: &Context<'_>, track_id: async_graphql::ID) -> Result<bool> {
+        let auth_user = ctx
+            .data_opt::<AuthUser>()
+            .ok_or_else(|| AppError::SpotifyAuth("UNAUTHENTICATED".to_string()))?;
+
+        let caller_id =
+            ObjectId::parse_str(&auth_user.user_id).map_err(|_| AppError::Unexpected)?;
+
+        let t_id = ObjectId::parse_str(track_id.as_str())
+            .map_err(|_| AppError::Validation("Invalid track ID format".to_string()))?;
+
+        let db = ctx.data::<Database>().map_err(|_| AppError::Unexpected)?;
+
+        crate::service::song::delete_track(db, caller_id, t_id).await
     }
 
     async fn respond_to_recommendation(
