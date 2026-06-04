@@ -60,8 +60,6 @@ export function AuthGate() {
 
   const isResolvingAuth = isLoading || (token && !user);
 
-  console.log(isResolvingAuth, token, user, inAuthGroup);
-
   if (!isResolvingAuth && !token && !inAuthGroup) {
     return <Redirect href={LOGIN_ROUTE} />;
   }

@@ -193,11 +193,6 @@ export default function PlaylistDetailScreen() {
     playlist && userId && playlist.ownerId === userId,
   );
 
-  console.log(
-    playlist?.state,
-    playlist?.tracks.length,
-    playlist?.proposals.length,
-  );
   const isSeeding = playlist?.state === "SEEDING";
   const isReadyForVoting = (playlist?.proposals.length ?? 0) > 0;
   const showInactivePlaceholder = Boolean(
