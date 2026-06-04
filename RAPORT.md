@@ -618,7 +618,3 @@ Generowanie typow GraphQL dla frontendu:
 cd matchify-app
 npm run codegen
 ```
-
-## 10. Podsumowanie
-
-Najwazniejsza technicznie czesc projektu to backend Rust + GraphQL + MongoDB. Projekt wykorzystuje MongoDB nie tylko jako prosty magazyn dokumentow, ale rowniez do wymuszania unikalnosci, operacji atomowych, transakcji i agregacji raportowych. Integracje Spotify i Last.fm sa oddzielone w serwisach, tokeny sa szyfrowane, a komunikacja realtime jest realizowana przez subskrypcje GraphQL oparte na brokerze zdarzen w pamieci.
