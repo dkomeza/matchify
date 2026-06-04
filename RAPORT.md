@@ -2,66 +2,66 @@
 
 ## 1. Charakterystyka projektu
 
-Matchify jest aplikacja do wspolnego budowania playlist muzycznych. Uzytkownicy loguja sie przez Spotify, tworza playlisty, dolaczaja do nich kodem zaproszenia, proponuja utwory i glosuja na propozycje w mechanizmie przypominajacym "swipe". Po osiagnieciu progu glosow utwor zostaje zaakceptowany i moze zostac zsynchronizowany z playlista Spotify wlasciciela.
+Matchify to aplikacja do wspólnego budowania playlist muzycznych. Użytkownicy logują się przez Spotify, tworzą playlisty, dołączają do nich kodem zaproszenia, proponują utwory i głosują na propozycje w mechanizmie przypominającym „swipe”. Po osiągnięciu progu głosów utwór zostaje zaakceptowany i może zostać zsynchronizowany z playlistą Spotify właściciela.
 
-Repozytorium sklada sie z dwoch glownych czesci:
+Repozytorium składa się z dwóch głównych części:
 
-- `matchify-backend` - backend w Rust, API GraphQL, integracja z MongoDB, Spotify i Last.fm.
-- `matchify-app` - aplikacja mobilna/webowa Expo React Native, komunikujaca sie z backendem przez GraphQL i GraphQL SSE.
+- `matchify-backend` - backend w Rust, API GraphQL oraz integracja z MongoDB, Spotify i Last.fm.
+- `matchify-app` - aplikacja Expo React Native działająca mobilnie i webowo, komunikująca się z backendem przez GraphQL oraz GraphQL SSE.
 
-Najistotniejsza logika projektu znajduje sie w backendzie. Frontend jest klientem API, natomiast backend odpowiada za autoryzacje, model domenowy, operacje bazodanowe, rekomendacje, statystyki i synchronizacje ze Spotify.
+Najważniejsza logika znajduje się w backendzie. Frontend jest klientem API, natomiast backend odpowiada za autoryzację, model domenowy, operacje bazodanowe, rekomendacje, statystyki i synchronizację ze Spotify.
 
 ## 2. Wykorzystane technologie
 
 ### Backend
 
-- Rust 2024 - jezyk implementacji backendu. Projekt korzysta z silnego typowania, struktur danych mapowanych na dokumenty MongoDB oraz asynchronicznego modelu wykonywania.
-- Tokio - runtime asynchroniczny dla serwera HTTP, operacji bazodanowych i zapytan HTTP do API zewnetrznych.
-- Axum - framework HTTP. W `src/main.rs` definiuje routing dla `/graphql` i `/graphql/ws`.
-- async-graphql oraz async-graphql-axum - definicja schematu GraphQL, resolverow query, mutation i subscription oraz integracja z Axum.
-- MongoDB Rust Driver - komunikacja z baza MongoDB, typed collections, indeksy, operacje atomowe, agregacje i transakcje.
-- Reqwest - klient HTTP do API Spotify i Last.fm.
+- Rust 2024 - język implementacji backendu, z silnym typowaniem i asynchronicznym modelem wykonywania.
+- Tokio - runtime asynchroniczny dla serwera HTTP, operacji bazodanowych i zapytań do API zewnętrznych.
+- Axum - framework HTTP; w `src/main.rs` definiuje routing dla `/graphql` i `/graphql/ws`.
+- async-graphql oraz async-graphql-axum - definicja schematu GraphQL, resolverów i integracja z Axum.
+- MongoDB Rust Driver - komunikacja z MongoDB, typed collections, indeksy, operacje atomowe, agregacje i transakcje.
+- Reqwest - klient HTTP do Spotify i Last.fm.
 - Serde - serializacja i deserializacja struktur Rust do BSON/JSON.
-- Chrono - obsluga dat, z konwersja do typu daty BSON przez helpery sterownika MongoDB.
-- jsonwebtoken - podpisywanie i weryfikacja tokenow JWT.
-- AES-256-GCM przez `aes-gcm` - szyfrowanie tokenow Spotify przed zapisem w bazie.
-- DashMap + Tokio broadcast - prosty broker zdarzen w pamieci dla subskrypcji GraphQL.
-- Tracing - logowanie zdarzen backendu.
+- Chrono - obsługa dat i konwersja do typu daty BSON.
+- jsonwebtoken - podpisywanie i weryfikacja tokenów JWT.
+- AES-256-GCM przez `aes-gcm` - szyfrowanie tokenów Spotify przed zapisem w bazie.
+- DashMap + Tokio broadcast - prosty broker zdarzeń w pamięci dla subskrypcji GraphQL.
+- Tracing - logowanie zdarzeń backendu.
 
 ### Baza danych
 
-Projekt uzywa MongoDB Cloud (MongoDB Atlas). Baza dziala jako dokumentowy magazyn danych, a kolekcje odpowiadaja glownym encjom domenowym: `users`, `playlists`, `songs`, `votes`, `recommendation_cache` i `recommendation_interactions`.
+Projekt używa MongoDB Cloud (MongoDB Atlas). Baza działa jako dokumentowy magazyn danych, a kolekcje odpowiadają głównym encjom domenowym: `users`, `playlists`, `songs`, `votes`, `recommendation_cache` i `recommendation_interactions`.
 
-Backend nie wymaga juz lokalnego kontenera MongoDB. Polaczenie jest konfigurowane przez zmienna `MONGO_URI`, najczesciej w formacie `mongodb+srv://...` wygenerowanym w panelu MongoDB Atlas. Przy starcie aplikacja laczy sie z klastrem, wykonuje `ping`, wybiera baze `matchify` i tworzy wymagane indeksy.
+Backend nie wymaga lokalnego kontenera MongoDB. Połączenie jest konfigurowane przez zmienną `MONGO_URI`, zwykle w formacie `mongodb+srv://...` z panelu Atlas. Przy starcie aplikacja łączy się z klastrem, wykonuje `ping`, wybiera bazę `matchify` i tworzy wymagane indeksy.
 
 ### Frontend
 
-Frontend jest aplikacja Expo/React Native:
+Frontend jest aplikacją Expo/React Native i korzysta z:
 
-- Expo SDK, React 19, React Native,
-- Expo Router dla routingu,
-- urql jako klient GraphQL,
+- Expo SDK, React 19 i React Native,
+- Expo Router do routingu,
+- urql jako klienta GraphQL,
 - graphql-sse dla subskrypcji,
-- Zustand dla stanu aplikacji,
-- NativeWind/Tailwind dla stylowania,
-- GraphQL Code Generator dla typow TypeScript generowanych ze schematu.
+- Zustand do stanu aplikacji,
+- NativeWind/Tailwind do stylowania,
+- GraphQL Code Generator do typów TypeScript generowanych ze schematu.
 
 ## 3. Architektura backendu
 
 Backend jest podzielony na warstwy:
 
-- `main.rs` - inicjalizacja konfiguracji, bazy, klientow Spotify/Last.fm, brokera zdarzen, schematu GraphQL i routera Axum.
-- `config.rs` - odczyt i walidacja zmiennych srodowiskowych.
-- `db.rs` oraz `db/indexes.rs` - polaczenie z MongoDB, ping i tworzenie indeksow.
-- `graphql/*` - publiczny kontrakt API: query, mutation, subscription.
-- `model/*` - struktury dokumentow MongoDB oraz obiekty GraphQL.
+- `main.rs` - inicjalizacja konfiguracji, bazy, klientów Spotify/Last.fm, brokera zdarzeń, schematu GraphQL i routera Axum.
+- `config.rs` - odczyt i walidacja zmiennych środowiskowych.
+- `db.rs` oraz `db/indexes.rs` - połączenie z MongoDB, ping i tworzenie indeksów.
+- `graphql/*` - publiczny kontrakt API: query, mutation i subscription.
+- `model/*` - struktury dokumentów MongoDB oraz obiekty GraphQL.
 - `service/*` - logika domenowa i operacje na bazie.
-- `jwt.rs` - ekstrakcja uzytkownika z naglowka `Authorization` i obsluga JWT.
-- `crypto.rs` - szyfrowanie i deszyfrowanie tokenow Spotify.
-- `events.rs` - broker zdarzen dla subskrypcji realtime.
-- `error.rs` - wspolny typ bledow aplikacyjnych oraz mapowanie bledow na kody GraphQL.
+- `jwt.rs` - ekstrakcja użytkownika z nagłówka `Authorization` i obsługa JWT.
+- `crypto.rs` - szyfrowanie i deszyfrowanie tokenów Spotify.
+- `events.rs` - broker zdarzeń dla subskrypcji realtime.
+- `error.rs` - wspólny typ błędów aplikacyjnych i mapowanie błędów na kody GraphQL.
 
-Uproszczony graf zaleznosci backendu:
+Uproszczony graf zależności backendu:
 
 ```mermaid
 flowchart TD
@@ -97,91 +97,42 @@ flowchart TD
     Mutation --> Jwt
 ```
 
-Warstwa GraphQL nie zawiera wiekszosci logiki biznesowej. Resolver sprawdza autoryzacje, parsuje identyfikatory, pobiera zaleznosci z kontekstu i wywoluje funkcje serwisowe. Dzieki temu logika domenowa jest skupiona w `service/*`. Najwazniejsze serwisy:
-- `src/service/recommendation.rs` - logika rekomendacji, cache i scoringu kandydatow,
-- `src/service/spotify.rs` - integracja OAuth, odswiezanie tokenow i operacje na Spotify API,
-- `src/service/playlist.rs` - operacje CRUD playlist oraz zarzadzanie czlonkostwem,
-- `src/model/playlist.rs` - model playlisty i resolvery GraphQL,
-- `src/service/song.rs` - propozycje, glosowanie, transakcje i synchronizacja zatwierdzonych utworow,
-- `src/service/stats.rs` - agregacje raportowe MongoDB.
+Warstwa GraphQL nie przechowuje większości logiki biznesowej. Resolver sprawdza autoryzację, parsuje identyfikatory, pobiera zależności z kontekstu i wywołuje funkcje serwisowe. Dzięki temu logika domenowa jest skupiona w `service/*`, przede wszystkim w:
 
-Z tego powodu dalszy opis skupia sie przede wszystkim na warstwie backendowej i operacjach bazodanowych.
+- `src/service/recommendation.rs` - rekomendacje, cache i scoring kandydatów,
+- `src/service/spotify.rs` - OAuth, odświeżanie tokenów i operacje na Spotify API,
+- `src/service/playlist.rs` - CRUD playlist oraz członkostwo,
+- `src/service/song.rs` - propozycje, głosowanie, transakcje i synchronizacja zatwierdzonych utworów,
+- `src/service/stats.rs` - agregacje raportowe MongoDB.
 
 ## 4. Model danych i schemat bazy
 
-MongoDB przechowuje dokumenty z natywnymi identyfikatorami `ObjectId`. W GraphQL identyfikatory sa zwracane jako tekst (`to_hex()`), poniewaz klient mobilny pracuje z ID jako stringami.
+MongoDB przechowuje dokumenty z natywnymi identyfikatorami `ObjectId`. W GraphQL identyfikatory są zwracane jako tekst (`to_hex()`), ponieważ klient mobilny pracuje z ID jako stringami.
 
 ### `users`
 
-Model: `src/model/user.rs`
+Model `src/model/user.rs` przechowuje identyfikator użytkownika, `spotify_id`, dane profilu (`display_name`, `email`, `profile_image_url`), zaszyfrowane tokeny Spotify, datę wygaśnięcia access tokena i datę utworzenia konta. Unikalny indeks po `spotify_id` zapobiega duplikatom kont.
 
-Pola:
-
-- `_id: ObjectId` - identyfikator uzytkownika.
-- `spotify_id: String` - identyfikator konta Spotify.
-- `display_name`, `email`, `profile_image_url` - dane profilu.
-- `access_token`, `refresh_token` - tokeny Spotify zaszyfrowane w bazie.
-- `token_expires_at` - data wygasniecia access tokena.
-- `created_at` - data utworzenia konta w systemie.
-
-Indeks:
-
-- unikalny indeks po `spotify_id`.
-
-Tokeny Spotify sa oznaczone jako `#[graphql(skip)]`, wiec nie sa eksponowane w API GraphQL.
+Tokeny Spotify są oznaczone jako `#[graphql(skip)]`, więc nie są eksponowane w API GraphQL.
 
 ### `playlists`
 
-Model: `src/model/playlist.rs`
+Model `src/model/playlist.rs` zawiera m.in. nazwę, opis, `owner_id`, `member_ids`, `invite_code`, `vote_threshold`, opcjonalne `spotify_playlist_id` oraz daty utworzenia i aktualizacji. Unikalny indeks po `invite_code` gwarantuje niepowtarzalność kodów zaproszeń.
 
-Pola:
-
-- `_id: ObjectId`,
-- `name`,
-- `description`,
-- `owner_id: ObjectId`,
-- `member_ids: Vec<ObjectId>`,
-- `invite_code: String`,
-- `vote_threshold: i32`,
-- `spotify_playlist_id: Option<String>`,
-- `created_at`,
-- `updated_at`.
-
-Indeks:
-
-- unikalny indeks po `invite_code`.
-
-Relacje:
+Relacje są przechowywane jawnie:
 
 - `owner_id` wskazuje dokument z `users`,
-- `member_ids` przechowuje liste uzytkownikow playlisty,
-- `songs.playlist_id` laczy utwory z playlista,
-- `votes.playlist_id` pozwala szybko kasowac glosy przy usuwaniu playlisty.
+- `member_ids` przechowuje listę członków playlisty,
+- `songs.playlist_id` łączy utwory z playlistą,
+- `votes.playlist_id` pozwala szybko kasować głosy przy usuwaniu playlisty.
 
-GraphQL wrapper `PlaylistGql` dodaje resolvery pol wyliczanych i zagniezdzonych:
-
-- `state` - `Seeding` albo `Active`, wyliczane z liczby utworow `Approved` i `Pending`; playlista staje sie aktywna od 5 utworow.
-- `owner`,
-- `members`,
-- `tracks` - zatwierdzone utwory,
-- `proposals` - oczekujace propozycje.
+Wrapper GraphQL `PlaylistGql` dodaje pola wyliczane i zagnieżdżone: `state`, `owner`, `members`, `tracks` i `proposals`. `state` przyjmuje wartość `Seeding` albo `Active`; playlista staje się aktywna od 5 utworów `Approved` lub `Pending`.
 
 ### `songs`
 
-Model: `src/model/song.rs`
+Model `src/model/song.rs` opisuje utwór w playliście: `playlist_id`, `spotify_track_id`, metadane utworu, `proposed_by`, `status` (`Pending`, `Approved`, `Skipped`), `like_count` i `created_at`.
 
-Pola:
-
-- `_id: ObjectId`,
-- `playlist_id: ObjectId`,
-- `spotify_track_id: String`,
-- `title`, `artist`, `album`, `album_art_url`, `preview_url`, `duration_ms`,
-- `proposed_by: ObjectId`,
-- `status: TrackStatus` (`Pending`, `Approved`, `Skipped`),
-- `like_count: i32`,
-- `created_at`.
-
-Indeksy:
+Najważniejsze indeksy:
 
 - indeks po `(playlist_id, status)`,
 - unikalny indeks po `(playlist_id, spotify_track_id)`.
@@ -190,253 +141,120 @@ Unikalny indeks blokuje wielokrotne dodanie tego samego utworu Spotify do tej sa
 
 ### `votes`
 
-Model: `src/model/vote.rs`
-
-Pola:
-
-- `_id: ObjectId`,
-- `song_id: ObjectId`,
-- `playlist_id: ObjectId`,
-- `user_id: ObjectId`,
-- `vote: VoteType` (`Like`, `Skip`),
-- `created_at`.
-
-Indeks:
-
-- unikalny indeks po `(song_id, user_id)`.
-
-Ten indeks wymusza zasade: jeden uzytkownik moze zaglosowac na dany utwor tylko raz.
+Model `src/model/vote.rs` przechowuje `song_id`, `playlist_id`, `user_id`, typ głosu (`Like` albo `Skip`) i datę utworzenia. Unikalny indeks po `(song_id, user_id)` wymusza zasadę: jeden użytkownik może zagłosować na dany utwór tylko raz.
 
 ### `recommendation_cache`
 
-Model: `src/model/recommendation.rs`
+Model `src/model/recommendation.rs` przechowuje znormalizowany `seed_key`, dane utworu źródłowego, listę kandydatów z Last.fm i `fetched_at`. Unikalny indeks po `seed_key` pozwala odświeżać wpis przez `update_one(...).upsert(true)`.
 
-Pola:
-
-- `_id`,
-- `seed_key` - znormalizowany klucz utworu zrodlowego,
-- `seed_artist`,
-- `seed_title`,
-- `candidates` - lista kandydatow z Last.fm,
-- `fetched_at`.
-
-Indeks:
-
-- unikalny indeks po `seed_key`.
-
-Cache jest swiezy przez 7 dni. Po tym czasie backend ponownie pobiera podobne utwory z Last.fm i aktualizuje wpis przez `update_one(...).upsert(true)`.
+Cache jest świeży przez 7 dni. Po tym czasie backend ponownie pobiera podobne utwory z Last.fm i aktualizuje dokument.
 
 ### `recommendation_interactions`
 
-Model: `src/model/recommendation.rs`
-
-Pola:
-
-- `_id`,
-- `playlist_id`,
-- `user_id`,
-- `spotify_track_id`,
-- `track_key`,
-- `action: RecommendationAction` (`Accept`, `Reject`),
-- `created_at`.
-
-Indeks:
-
-- unikalny indeks po `(playlist_id, user_id, spotify_track_id)`.
-
-Kolekcja przechowuje decyzje uzytkownika wobec rekomendacji i pozwala nie proponowac ponownie odrzuconych utworow.
+Ta kolekcja zapisuje decyzje użytkownika wobec rekomendacji: `playlist_id`, `user_id`, `spotify_track_id`, `track_key`, akcję (`Accept` albo `Reject`) i `created_at`. Unikalny indeks po `(playlist_id, user_id, spotify_track_id)` pozwala nie proponować ponownie odrzuconych utworów.
 
 ## 5. Operacje bazodanowe
 
-### Inicjalizacja bazy i indeksow
+### Inicjalizacja bazy i indeksów
 
-Backend laczy sie z MongoDB w `db::connect`, parsujac `MONGO_URI`, tworzac klienta i wykonujac `ping`. Po polaczeniu `db::indexes::create_indexes` tworzy indeksy dla wszystkich najwazniejszych ograniczen:
+Backend łączy się z MongoDB w `db::connect`, parsując `MONGO_URI`, tworząc klienta i wykonując `ping`. Po połączeniu `db::indexes::create_indexes` tworzy indeksy wymuszające najważniejsze ograniczenia:
 
-- unikalne Spotify ID uzytkownika,
-- unikalne kody zaproszen,
-- unikalny utwor Spotify w obrebie playlisty,
-- unikalny glos uzytkownika na utwor,
+- unikalne Spotify ID użytkownika,
+- unikalne kody zaproszeń,
+- unikalny utwór Spotify w obrębie playlisty,
+- unikalny głos użytkownika na utwór,
 - unikalny klucz cache rekomendacji,
-- unikalna interakcja uzytkownika z rekomendacja.
+- unikalną interakcję użytkownika z rekomendacją.
 
-Zastosowanie indeksow jest istotne, bo czesc reguł domenowych jest wymuszana przez baze, a nie tylko przez kod aplikacji.
+Indeksy są tu częścią modelu domenowego, a nie tylko optymalizacją zapytań.
 
-### Logowanie przez Spotify i zapis uzytkownika
+### Logowanie przez Spotify
 
-Mutacja `login_with_spotify`:
+Mutacja `login_with_spotify` wymienia kod OAuth na tokeny, pobiera profil użytkownika z `/v1/me`, szyfruje tokeny przez AES-256-GCM i wykonuje `find_one_and_update` po `spotify_id` z `upsert(true)`. Dzięki temu kolejne logowanie tego samego użytkownika aktualizuje tokeny i dane profilu bez tworzenia duplikatów kont. Odpowiedzią jest JWT podpisany sekretem aplikacji.
 
-1. Wymienia kod OAuth na tokeny Spotify.
-2. Pobiera profil uzytkownika z `/v1/me`.
-3. Szyfruje tokeny przez AES-256-GCM.
-4. Wykonuje `find_one_and_update` po `spotify_id` z `upsert(true)`.
-5. Zwraca JWT podpisany sekretem aplikacji.
+### Playlisty
 
-Technicznie jest to operacja typu "utworz albo zaktualizuj". Dzieki temu wielokrotne logowanie tego samego uzytkownika aktualizuje tokeny i dane profilu, ale nie tworzy duplikatow kont.
+Tworzenie playlisty (`service::playlist::create`) waliduje nazwę, generuje 8-znakowy alfanumeryczny `invite_code`, zapisuje dokument i przy kolizji unikalnego indeksu ponawia próbę maksymalnie 5 razy.
 
-### Tworzenie playlisty
+Dołączanie (`service::playlist::join`) wyszukuje playlistę po kodzie, sprawdza członkostwo i używa `$addToSet`, aby atomowo dodać użytkownika bez duplikatów. Jeżeli próg głosów był zarządzany automatycznie, backend aktualizuje też `vote_threshold`.
 
-Funkcja `service::playlist::create`:
+Aktualizacja playlisty jest dostępna tylko dla właściciela. Backend waliduje niepustą nazwę, maksymalną długość nazwy, `vote_threshold >= 1` oraz `vote_threshold <= liczba członków`. Zmiany są budowane jako dynamiczny dokument `$set`, więc aktualizowane są tylko pola podane przez klienta.
 
-- waliduje nazwe,
-- generuje 8-znakowy alfanumeryczny `invite_code`,
-- zapisuje dokument do `playlists`,
-- przy kolizji unikalnego indeksu kodu zaproszenia ponawia probe maksymalnie 5 razy,
-- po zapisie pobiera dokument z bazy.
+Opuszczanie playlisty blokuje wyjście właściciela, sprawdza członkostwo, usuwa użytkownika przez `$pull` i przelicza albo ogranicza `vote_threshold`.
 
-Kod zaproszenia jest unikalny dzieki polaczeniu losowania i unikalnego indeksu. Sama aplikacja wykrywa blad duplicate key (`E11000`) i ponawia zapis.
+### Usuwanie playlist i utworów
 
-### Dolaczanie do playlisty
+MongoDB nie wymusza relacji ani kaskadowego usuwania jak baza relacyjna, dlatego backend wykonuje je jawnie:
 
-Funkcja `service::playlist::join`:
+- przy usuwaniu playlisty kasuje najpierw głosy z `votes`, potem utwory z `songs`, a na końcu dokument z `playlists`,
+- przy usuwaniu utworu kasuje powiązane głosy, a następnie sam utwór.
 
-- znajduje playliste po `invite_code`,
-- jezeli uzytkownik juz jest czlonkiem, zwraca dokument bez kolejnego zapisu,
-- uzywa `$addToSet`, aby atomowo dodac uzytkownika bez duplikatow,
-- aktualizuje `vote_threshold`, jezeli prog byl zarzadzany automatycznie,
-- zwraca dokument po aktualizacji (`ReturnDocument::After`).
+To świadomy koszt bazy dokumentowej: większa elastyczność schematu, ale odpowiedzialność za spójność relacji pozostaje po stronie aplikacji.
 
-Uzycie `$addToSet` jest dobrym przykladem wykorzystania dokumentowych operatorow MongoDB do zachowania idempotencji.
+### Propozycje i głosowanie
 
-### Aktualizacja i opuszczanie playlisty
+`service::song::propose_track` sprawdza istnienie playlisty i członkostwo użytkownika, ogranicza liczbę oczekujących propozycji użytkownika do 10, pobiera metadane ze Spotify, zapisuje dokument w `songs` i publikuje zdarzenie `NewProposal`. Duplikaty blokuje unikalny indeks `(playlist_id, spotify_track_id)`.
 
-Aktualizacja playlisty jest dostepna tylko dla wlasciciela. Backend waliduje:
+`service::song::next_unvoted` używa pipeline agregacji:
 
-- niepusta nazwe,
-- maksymalna dlugosc nazwy,
-- `vote_threshold >= 1`,
-- `vote_threshold <= liczba czlonkow`.
-
-Zmiany sa budowane jako dynamiczny dokument `$set`, dzieki czemu aktualizowane sa tylko pola podane przez klienta.
-
-Opuszczanie playlisty:
-
-- blokuje opuszczenie przez wlasciciela,
-- sprawdza czlonkostwo,
-- usuwa uzytkownika przez `$pull`,
-- przelicza albo ogranicza `vote_threshold`,
-- aktualizuje `updated_at`.
-
-### Usuwanie playlisty i utworu
-
-MongoDB nie wymusza relacji ani kaskadowego usuwania jak relacyjna baza danych. Dlatego backend wykonuje to jawnie:
-
-- przy usuwaniu playlisty kasuje najpierw glosy z `votes`, potem utwory z `songs`, a na koncu dokument z `playlists`,
-- przy usuwaniu utworu kasuje powiazane glosy, a nastepnie sam utwor.
-
-To jest swiadomy koszt uzycia bazy dokumentowej: wieksza elastycznosc schematu, ale odpowiedzialnosc za spojność relacji pozostaje po stronie aplikacji.
-
-### Dodawanie propozycji utworu
-
-Funkcja `service::song::propose_track`:
-
-- sprawdza, czy playlista istnieje i czy uzytkownik jest jej czlonkiem,
-- liczy oczekujace propozycje danego uzytkownika w danej playliscie,
-- ogranicza liczbe pending proposals do 10,
-- pobiera metadane utworu ze Spotify,
-- zapisuje dokument w `songs`,
-- publikuje zdarzenie `NewProposal` do brokera realtime.
-
-Duplikaty sa blokowane przez unikalny indeks `(playlist_id, spotify_track_id)`.
-
-### Pobieranie nastepnej propozycji do glosowania
-
-Funkcja `service::song::next_unvoted` wykorzystuje pipeline agregacji:
-
-- `$match` wybiera pending utwory z playlisty,
-- `$lookup` dolacza glosy danego uzytkownika,
-- kolejny `$match` zostawia tylko utwory bez glosu uzytkownika,
-- `$sort` wybiera najstarsza propozycje,
+- `$match` wybiera oczekujące utwory z playlisty,
+- `$lookup` dołącza głosy danego użytkownika,
+- kolejny `$match` zostawia tylko utwory bez głosu użytkownika,
+- `$sort` wybiera najstarszą propozycję,
 - `$limit: 1` zwraca jeden dokument.
 
-To pozwala przeniesc filtrowanie do bazy zamiast pobierac wszystkie propozycje i filtrowac je w aplikacji.
+Dzięki temu filtrowanie odbywa się w bazie, a nie po stronie aplikacji.
 
-### Glosowanie i akceptacja utworu
+Najbardziej złożona operacja to `service::song::vote_on_track`. Backend pobiera utwór i playlistę, sprawdza członkostwo, otwiera sesję i transakcję MongoDB, wstawia dokument `Vote`, a dla głosu `Like` zwiększa `like_count` przez `$inc`. Jeżeli liczba polubień osiąga `vote_threshold`, status utworu zmienia się z `Pending` na `Approved`, a backend publikuje `TrackApproved`.
 
-Najbardziej zaawansowana operacja znajduje sie w `service::song::vote_on_track`.
-
-Przebieg:
-
-1. Backend pobiera utwor i playliste.
-2. Sprawdza, czy uzytkownik jest czlonkiem playlisty.
-3. Otwiera sesje i transakcje MongoDB.
-4. Wstawia dokument `Vote`.
-5. Dla glosu `Like` zwieksza `like_count` przez `$inc`.
-6. Jezeli liczba polubien osiaga `vote_threshold`, zmienia status utworu z `Pending` na `Approved`.
-7. Publikuje zdarzenie `TrackApproved`.
-8. Po zatwierdzeniu transakcji zwraca zaktualizowany utwor.
-
-Transakcja chroni operacje przed niespojnoscia: glos i licznik polubien powinny zmienic sie razem. Kod obsluguje rowniez transient transaction errors i ponawia transakcje do 3 razy.
-
-Wazna uwaga wdrozeniowa: transakcje MongoDB wymagaja replica set albo klastra sharded. MongoDB Cloud/Atlas spelnia to wymaganie w typowej konfiguracji klastra, dlatego obecna wersja aplikacji jest dopasowana do transakcyjnej sciezki glosowania.
+Transakcja chroni przed niespójnością: głos i licznik polubień powinny zmienić się razem. Kod obsługuje też transient transaction errors i ponawia transakcję do 3 razy. Wymaga to replica set albo klastra sharded; MongoDB Atlas spełnia ten warunek w typowej konfiguracji.
 
 ### Synchronizacja ze Spotify
 
-Po zatwierdzeniu utworu backend uruchamia zadanie `tokio::spawn`, ktore:
+Po zatwierdzeniu utworu backend uruchamia `tokio::spawn`, które pobiera właściciela playlisty, odświeża token Spotify, w razie potrzeby tworzy prywatną playlistę Spotify, zapisuje `spotify_playlist_id` i dodaje utwór do playlisty.
 
-- pobiera wlasciciela playlisty,
-- odswieza token Spotify, jezeli trzeba,
-- tworzy prywatna playliste Spotify, jezeli `spotify_playlist_id` nie istnieje,
-- zapisuje `spotify_playlist_id` w `playlists`,
-- dodaje utwor do playlisty Spotify.
-
-Synchronizacja jest wykonywana asynchronicznie po stronie backendu. Blad synchronizacji jest logowany, ale nie cofa glosu. To dobra decyzja projektowa: glosowanie jest operacja domenowa, a Spotify jest integracja zewnetrzna, ktora moze chwilowo zawodzic.
+Błąd synchronizacji jest logowany, ale nie cofa głosu. To sensowny podział odpowiedzialności: głosowanie jest operacją domenową, a Spotify zewnętrzną integracją, która może chwilowo zawodzić.
 
 ### Rekomendacje
 
-Rekomendacje lacza Last.fm, Spotify i MongoDB:
+Rekomendacje łączą Last.fm, Spotify i MongoDB:
 
-1. Backend wybiera do 10 najnowszych utworow `Approved` lub `Pending` jako seed.
-2. Dla kazdego seeda pobiera podobne utwory z cache albo z Last.fm.
+1. Backend wybiera do 10 najnowszych utworów `Approved` lub `Pending` jako seed.
+2. Dla każdego seeda pobiera podobne utwory z cache albo Last.fm.
 3. Normalizuje klucze `artist::title`.
-4. Odrzuca utwory juz istniejace w playliscie oraz odrzucone przez uzytkownika.
-5. Agreguje kandydatow pojawiajacych sie przy wielu seedach.
-6. Dodaje bonus za wiele seedow i kare za nadmiar tego samego artysty.
-7. Rozwiazuje kandydatow do realnych utworow Spotify przez wyszukiwanie.
-8. Zwraca pierwszy pasujacy wynik.
+4. Odrzuca utwory już istniejące w playliście oraz odrzucone przez użytkownika.
+5. Agreguje kandydatów pojawiających się przy wielu seedach.
+6. Dodaje bonus za wiele seedów i karę za nadmiar tego samego artysty.
+7. Rozwiązuje kandydatów do realnych utworów Spotify przez wyszukiwanie.
+8. Zwraca pierwszy pasujący wynik.
 
-Akcja uzytkownika na rekomendacji jest zapisywana w `recommendation_interactions` przez upsert. Przy `Reject` backend konczy operacje. Przy `Accept` backend proponuje utwor i automatycznie oddaje glos `Like`.
+Akcja użytkownika na rekomendacji jest zapisywana w `recommendation_interactions` przez upsert. Przy `Reject` backend kończy operację, a przy `Accept` proponuje utwór i automatycznie oddaje głos `Like`.
 
 ### Statystyki i raporty
 
-Serwis `service::stats` pokazuje szerokie wykorzystanie aggregation pipeline:
+`service::stats` wykorzystuje aggregation pipeline:
 
-- `get_home_report` liczy podsumowanie uzytkownika, aktywnosc playlist, aktywnych czlonkow, top artystow i oczekujace utwory.
-- `get_playlist_stats` liczy statystyki jednej playlisty, udzial czlonkow i najpopularniejsze pending proposals.
+- `get_home_report` liczy podsumowanie użytkownika, aktywność playlist, aktywnych członków, top artystów i oczekujące utwory.
+- `get_playlist_stats` liczy statystyki jednej playlisty, udział członków i najpopularniejsze oczekujące propozycje.
 
-Wykorzystywane mechanizmy MongoDB:
-
-- `$match`,
-- `$lookup` do laczenia `songs` z `votes` i `users`,
-- `$group`,
-- `$sum`,
-- `$cond`,
-- `$avg`,
-- `$project`,
-- `$sort`,
-- `$limit`.
-
-To jest najpelniejsza prezentacja mozliwosci bazy w projekcie: MongoDB nie sluzy tylko do prostego CRUD, ale rowniez do agregacji analitycznych.
+Wykorzystywane są m.in. `$match`, `$lookup`, `$group`, `$sum`, `$cond`, `$avg`, `$project`, `$sort` i `$limit`. MongoDB służy więc nie tylko do prostego CRUD, ale też do agregacji analitycznych.
 
 ## 6. API GraphQL
 
-Schemat GraphQL sklada sie z:
+Schemat GraphQL składa się z `Query`, `Mutation` i `MatchifySubscription`.
 
-- `Query`,
-- `Mutation`,
-- `MatchifySubscription`.
+Najważniejsze query:
 
-Najwazniejsze query:
-
-- `me` - aktualny uzytkownik,
-- `playlist(id)` - szczegoly playlisty,
-- `myPlaylists` - playlisty uzytkownika,
-- `homeReport` - raport glowny,
-- `nextProposal(playlistId)` - nastepna propozycja do glosowania,
+- `me` - aktualny użytkownik,
+- `playlist(id)` - szczegóły playlisty,
+- `myPlaylists` - playlisty użytkownika,
+- `homeReport` - raport główny,
+- `nextProposal(playlistId)` - następna propozycja do głosowania,
 - `playlistStats(playlistId)` - statystyki playlisty,
 - `searchTracks(query, limit)` - wyszukiwanie Spotify,
 - `nextRecommendation(playlistId, excludedSpotifyTrackIds)` - kolejna rekomendacja.
 
-Najwazniejsze mutacje:
+Najważniejsze mutacje:
 
 - `loginWithSpotify`,
 - `createPlaylist`,
@@ -455,67 +273,58 @@ Subskrypcje:
 - `trackApproved(playlistId)`,
 - `newProposal(playlistId)`.
 
-Subskrypcje sa zabezpieczone przez `guard_member`, ktory sprawdza JWT i czlonkostwo w playliscie.
+Subskrypcje są zabezpieczone przez `guard_member`, który sprawdza JWT i członkostwo w playliście.
 
-## 7. Bezpieczenstwo
+## 7. Bezpieczeństwo
 
 ### JWT
 
 Po logowaniu backend podpisuje JWT z:
 
-- `sub` - `ObjectId` uzytkownika,
+- `sub` - `ObjectId` użytkownika,
 - `iat` - czas wystawienia,
-- `exp` - czas wygasniecia.
+- `exp` - czas wygaśnięcia.
 
-Token jest wysylany przez klienta w naglowku:
+Token jest wysyłany przez klienta w nagłówku:
 
 ```text
 Authorization: Bearer <token>
 ```
 
-Extractor `OptionalAuthUser` w `jwt.rs` odczytuje token i przekazuje uzytkownika do kontekstu GraphQL.
+Extractor `OptionalAuthUser` w `jwt.rs` odczytuje token i przekazuje użytkownika do kontekstu GraphQL.
 
-### Szyfrowanie tokenow Spotify
+### Szyfrowanie tokenów Spotify
 
-Access token i refresh token Spotify sa szyfrowane przed zapisem w MongoDB:
+Access token i refresh token Spotify są szyfrowane przed zapisem w MongoDB:
 
 - algorytm: AES-256-GCM,
-- klucz: `ENCRYPTION_KEY` o dlugosci dokladnie 32 bajtow,
-- nonce: losowe 12 bajtow,
+- klucz: `ENCRYPTION_KEY` o długości dokładnie 32 bajtów,
+- nonce: losowe 12 bajtów,
 - format zapisu: `nonce_base64:ciphertext_base64`.
 
-To ogranicza skutki potencjalnego wycieku bazy: tokeny nie sa przechowywane jawnie.
+To ogranicza skutki potencjalnego wycieku bazy, ponieważ tokeny nie są przechowywane jawnie.
 
 ### Walidacja i autoryzacja
 
-Backend sprawdza:
-
-- format `ObjectId`,
-- czlonkostwo w playliscie,
-- uprawnienia wlasciciela przy edycji/usuwaniu playlist i utworow,
-- limity liczby propozycji,
-- poprawny zakres `vote_threshold`,
-- wymagana obecnosc sekretow i kluczy API przy starcie.
-
-Bledy domenowe sa mapowane na kody GraphQL, np. `BAD_USER_INPUT`, `FORBIDDEN`, `NOT_FOUND`, `UNAUTHENTICATED`.
+Backend sprawdza format `ObjectId`, członkostwo w playliście, uprawnienia właściciela przy edycji i usuwaniu, limity propozycji, zakres `vote_threshold` oraz obecność sekretów i kluczy API przy starcie. Błędy domenowe są mapowane na kody GraphQL, np. `BAD_USER_INPUT`, `FORBIDDEN`, `NOT_FOUND` i `UNAUTHENTICATED`.
 
 ## 8. Dyskusja zastosowanych technik
 
-### Zalety przyjetej architektury
+### Zalety
 
-- Rust i Tokio dobrze pasuja do backendu I/O-bound: API wiekszosc czasu czeka na MongoDB, Spotify albo Last.fm.
-- GraphQL ulatwia frontendowi pobieranie dokladnie tych pol, ktore sa potrzebne na ekranie.
-- Warstwa serwisow oddziela logike domenowa od resolverow GraphQL.
-- MongoDB pasuje do modelu aplikacji, bo encje maja naturalnie dokumentowy charakter, a czesc danych Spotify mozna zapisac bez projektowania wielu tabel slownikowych.
-- Indeksy unikalne sa uzywane jako realne zabezpieczenia przed duplikatami, a nie tylko jako optymalizacja.
-- Event broker i subskrypcje GraphQL daja frontendowi informacje o nowych propozycjach i zatwierdzonych utworach w czasie rzeczywistym.
+- Rust i Tokio dobrze pasują do backendu I/O-bound, który często czeka na MongoDB, Spotify albo Last.fm.
+- GraphQL ułatwia frontendowi pobieranie dokładnie tych pól, które są potrzebne na ekranie.
+- Warstwa serwisów oddziela logikę domenową od resolverów GraphQL.
+- MongoDB pasuje do modelu aplikacji, bo encje mają dokumentowy charakter, a część danych Spotify można zapisać bez projektowania wielu tabel słownikowych.
+- Indeksy unikalne działają jako realne zabezpieczenia przed duplikatami.
+- Event broker i subskrypcje GraphQL dają frontendowi informacje o nowych propozycjach i zatwierdzonych utworach w czasie rzeczywistym.
 
 ### Ograniczenia i ryzyka
 
-- Brak relacji wymuszanych przez baze oznacza, ze operacje kaskadowe musza byc recznie utrzymywane w kodzie.
-- Broker zdarzen jest w pamieci procesu. Po restarcie backendu zdarzenia przepadaja, a przy wielu instancjach backendu kazda mialaby wlasny broker. Produkcyjnie lepszy bylby Redis Pub/Sub, NATS albo Kafka.
-- Czesc resolverow zagniezdzonych moze generowac dodatkowe zapytania do bazy. Przy duzych listach mozna rozwazyc dataloadery albo agregacje.
-- Synchronizacja ze Spotify jest asynchroniczna i nie ma kolejki retry. Przy awarii Spotify utwor zostaje zatwierdzony w Matchify, ale moze nie zostac dodany do Spotify.
+- Brak relacji wymuszanych przez bazę oznacza, że operacje kaskadowe muszą być ręcznie utrzymywane w kodzie.
+- Broker zdarzeń działa w pamięci procesu. Po restarcie backendu zdarzenia przepadają, a przy wielu instancjach każda miałaby własny broker. Produkcyjnie lepszy byłby Redis Pub/Sub, NATS albo Kafka.
+- Część resolverów zagnieżdżonych może generować dodatkowe zapytania do bazy. Przy dużych listach warto rozważyć dataloadery albo agregacje.
+- Synchronizacja ze Spotify jest asynchroniczna i nie ma kolejki retry. Przy awarii Spotify utwór zostaje zatwierdzony w Matchify, ale może nie zostać dodany do Spotify.
 
 ## 9. Instrukcja uruchomienia projektu
 
@@ -529,19 +338,19 @@ Bledy domenowe sa mapowane na kody GraphQL, np. `BAD_USER_INPUT`, `FORBIDDEN`, `
 
 ### 1. Konfiguracja MongoDB Cloud
 
-W MongoDB Atlas nalezy przygotowac klaster oraz uzytkownika bazy z uprawnieniami odczytu i zapisu do bazy `matchify`. Trzeba tez skonfigurowac Network Access, czyli dopuscic adres IP maszyny uruchamiajacej backend.
+W MongoDB Atlas należy przygotować klaster, użytkownika bazy z uprawnieniami odczytu i zapisu do bazy `matchify` oraz Network Access dopuszczający adres IP maszyny uruchamiającej backend.
 
-Z panelu MongoDB Atlas nalezy skopiowac connection string w formacie SRV. Przykladowy `MONGO_URI`:
+Z panelu Atlas należy skopiować connection string w formacie SRV, np.:
 
 ```text
 mongodb+srv://<user>:<password>@<cluster-url>/?retryWrites=true&w=majority
 ```
 
-Backend w kodzie wybiera baze `matchify`, dlatego connection string powinien wskazywac klaster, a nie lokalny port bazy.
+Backend w kodzie wybiera bazę `matchify`, dlatego connection string powinien wskazywać klaster, a nie lokalny port bazy.
 
 ### 2. Konfiguracja backendu
 
-W katalogu `matchify-backend` nalezy przygotowac plik `.env`:
+W katalogu `matchify-backend` należy przygotować plik `.env`:
 
 ```env
 PORT=8082
@@ -553,7 +362,7 @@ SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
 LASTFM_API_KEY=your_lastfm_api_key
 ```
 
-`ENCRYPTION_KEY` musi miec dokladnie 32 bajty, a `JWT_SECRET` co najmniej 32 znaki.
+`ENCRYPTION_KEY` musi mieć dokładnie 32 bajty, a `JWT_SECRET` co najmniej 32 znaki.
 
 Uruchomienie backendu:
 
@@ -562,7 +371,7 @@ cd matchify-backend
 cargo run
 ```
 
-Domyslnie API bedzie dostepne pod:
+Domyślnie API będzie dostępne pod:
 
 ```text
 http://localhost:8082/graphql
@@ -581,7 +390,7 @@ cd matchify-backend
 cargo test
 ```
 
-Czesc testow integracyjnych jest oznaczona jako `#[ignore]`, bo wymaga dzialajacej MongoDB. Mozna je uruchomic poleceniem:
+Część testów integracyjnych jest oznaczona jako `#[ignore]`, bo wymaga działającej MongoDB. Można je uruchomić poleceniem:
 
 ```bash
 cd matchify-backend
@@ -590,14 +399,14 @@ cargo test -- --ignored
 
 ### 3. Konfiguracja frontendu
 
-W katalogu `matchify-app` nalezy ustawic zmienne srodowiskowe, np. w `.env.local`:
+W katalogu `matchify-app` należy ustawić zmienne środowiskowe, np. w `.env.local`:
 
 ```env
 EXPO_PUBLIC_API_URL=http://localhost:8082
 EXPO_PUBLIC_SPOTIFY_CLIENT_ID=your_spotify_client_id
 ```
 
-Instalacja zaleznosci i start:
+Instalacja zależności i start:
 
 ```bash
 cd matchify-app
@@ -605,14 +414,14 @@ npm install
 npm run start
 ```
 
-Uruchomienie w przegladarce:
+Uruchomienie w przeglądarce:
 
 ```bash
 cd matchify-app
 npm run web
 ```
 
-Generowanie typow GraphQL dla frontendu:
+Generowanie typów GraphQL dla frontendu:
 
 ```bash
 cd matchify-app
