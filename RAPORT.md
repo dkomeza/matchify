@@ -1,5 +1,9 @@
 # Raport techniczny projektu Matchify
 
+- Autorzy: Magdalena Śmietana, Dawid Komęza
+
+---
+
 ## 1. Charakterystyka projektu
 
 Matchify to aplikacja do wspólnego budowania playlist muzycznych. Użytkownicy logują się przez Spotify, tworzą playlisty, dołączają do nich kodem zaproszenia, proponują utwory i głosują na propozycje w mechanizmie przypominającym „swipe”. Po osiągnięciu progu głosów utwór zostaje zaakceptowany i może zostać zsynchronizowany z playlistą Spotify właściciela.
@@ -323,7 +327,6 @@ Backend sprawdza format `ObjectId`, członkostwo w playliście, uprawnienia wła
 
 - Brak relacji wymuszanych przez bazę oznacza, że operacje kaskadowe muszą być ręcznie utrzymywane w kodzie.
 - Broker zdarzeń działa w pamięci procesu. Po restarcie backendu zdarzenia przepadają, a przy wielu instancjach każda miałaby własny broker. Produkcyjnie lepszy byłby Redis Pub/Sub, NATS albo Kafka.
-- Część resolverów zagnieżdżonych może generować dodatkowe zapytania do bazy. Przy dużych listach warto rozważyć dataloadery albo agregacje.
 - Synchronizacja ze Spotify jest asynchroniczna i nie ma kolejki retry. Przy awarii Spotify utwór zostaje zatwierdzony w Matchify, ale może nie zostać dodany do Spotify.
 
 ## 9. Instrukcja uruchomienia projektu
