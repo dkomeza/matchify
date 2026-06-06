@@ -1,14 +1,14 @@
-import { useState } from 'react'
-import { StyleSheet, View } from 'react-native'
-import { router } from 'expo-router'
-import { gql, useClient, useMutation } from 'urql'
+import { useState } from "react";
+import { StyleSheet, View } from "react-native";
+import { router } from "expo-router";
+import { gql, useClient, useMutation } from "urql";
 
-import { BottomSheet } from '@/components/ui/bottom-sheet'
-import { GlassInput } from '@/components/ui/glass-input'
-import { PrimaryButton } from '@/components/ui/primary-button'
-import { ThemedText } from '@/components/themed-text'
-import { Colors, Spacing } from '@/constants/theme'
-import { refreshMyPlaylists } from '@/lib/graphql/playlists'
+import { BottomSheet } from "@/components/ui/bottom-sheet";
+import { GlassInput } from "@/components/ui/glass-input";
+import { PrimaryButton } from "@/components/ui/primary-button";
+import { ThemedText } from "@/components/themed-text";
+import { Colors, Spacing } from "@/constants/theme";
+import { refreshMyPlaylists } from "@/lib/graphql/playlists";
 
 const JOIN_PLAYLIST_MUTATION = gql`
   mutation JoinPlaylist($inviteCode: String!) {
@@ -16,52 +16,56 @@ const JOIN_PLAYLIST_MUTATION = gql`
       id
     }
   }
-`
+`;
 
 type JoinPlaylistData = {
   joinPlaylist: {
-    id: string
-  }
-}
+    id: string;
+  };
+};
 
 type JoinPlaylistVariables = {
-  inviteCode: string
-}
+  inviteCode: string;
+};
 
 export default function JoinPlaylistScreen() {
-  const client = useClient()
-  const [{ fetching }, executeJoin] = useMutation<JoinPlaylistData, JoinPlaylistVariables>(JOIN_PLAYLIST_MUTATION)
-  const [inviteCode, setInviteCode] = useState('')
-  const [codeError, setCodeError] = useState<string | null>(null)
-  const [submitError, setSubmitError] = useState<string | null>(null)
+  const client = useClient();
+  const [{ fetching }, executeJoin] = useMutation<
+    JoinPlaylistData,
+    JoinPlaylistVariables
+  >(JOIN_PLAYLIST_MUTATION);
+  const [inviteCode, setInviteCode] = useState("");
+  const [codeError, setCodeError] = useState<string | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const submit = async () => {
-    const code = inviteCode.trim().toUpperCase()
-    setCodeError(null)
-    setSubmitError(null)
+    const code = inviteCode.trim();
+    setCodeError(null);
+    setSubmitError(null);
 
-    if (!/^[A-Z0-9]{6,8}$/.test(code)) {
-      setCodeError('Invite code must be 6-8 characters.')
-      return
+    if (!/^[a-zA-Z0-9]{6,8}$/.test(code)) {
+      setCodeError("Invite code must be 6-8 characters.");
+      return;
     }
 
-    const result = await executeJoin({ inviteCode: code })
+    console.log("Joining playlist with code:", code);
+    const result = await executeJoin({ inviteCode: code });
 
     if (result.error) {
-      setSubmitError(result.error.message)
-      return
+      setSubmitError(result.error.message);
+      return;
     }
 
-    const playlistId = result.data?.joinPlaylist.id
+    const playlistId = result.data?.joinPlaylist.id;
     if (!playlistId) {
-      setSubmitError('Playlist could not be joined.')
-      return
+      setSubmitError("Playlist could not be joined.");
+      return;
     }
 
-    await refreshMyPlaylists(client)
-    router.back()
-    router.replace(`/playlists/${playlistId}`)
-  }
+    await refreshMyPlaylists(client);
+    router.back();
+    router.replace(`/playlists/${playlistId}`);
+  };
 
   return (
     <BottomSheet onClose={router.back}>
@@ -81,8 +85,8 @@ export default function JoinPlaylistScreen() {
             placeholder="Invite code"
             value={inviteCode}
             onChangeText={(value) => {
-              setInviteCode(value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8))
-              if (codeError) setCodeError(null)
+              setInviteCode(value.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8));
+              if (codeError) setCodeError(null);
             }}
             error={codeError}
             autoCapitalize="characters"
@@ -105,10 +109,10 @@ export default function JoinPlaylistScreen() {
       ) : null}
 
       <PrimaryButton disabled={fetching} onPress={submit}>
-        {fetching ? 'Joining...' : 'Join playlist'}
+        {fetching ? "Joining..." : "Join playlist"}
       </PrimaryButton>
     </BottomSheet>
-  )
+  );
 }
 
 const styles = StyleSheet.create({
@@ -128,4 +132,4 @@ const styles = StyleSheet.create({
   errorText: {
     color: Colors.skip,
   },
-})
+});
